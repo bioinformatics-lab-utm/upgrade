@@ -36,7 +36,7 @@ Foster a dynamic Romanian-Moldovan research collaboration focusing on rapid path
 
 ## Technical Architecture
 
-![UPGRADE Project Architecture](docs/architecture-diagram.png)
+![UPGRADE Project Architecture](diagram.png)
 
 *Figure 1: Complete system architecture showing data flows from weather APIs and FASTQ files through the bioinformatics pipeline to analytics dashboards.*
 
