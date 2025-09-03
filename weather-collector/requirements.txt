@@ -4,4 +4,3 @@ pandas==2.0.3
 pyarrow==14.0.1
 python-dotenv==1.0.0
 tenacity==8.2.3
-fastparquet==0.8.3
