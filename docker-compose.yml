@@ -1,4 +1,16 @@
 services:
+  open-meteo:
+    image: ghcr.io/open-meteo/open-meteo:latest
+    container_name: upgrade_open_meteo
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./open-meteo/config:/app/config
+      - ./open-meteo/data:/app/data
+    networks:
+      - upgrade_network
+    
+
   postgres:
     image: postgres:15
     container_name: upgrade_postgres
@@ -53,7 +65,6 @@ services:
       interval: 30s
       timeout: 10s
       retries: 3
-
 
   airflow-webserver:
     image: apache/airflow:2.7.3-python3.11
@@ -136,26 +147,26 @@ services:
         condition: service_healthy
     restart: "no"
 
-  weather-collector:
-    build:
-      context: ../../weather-collector
-      dockerfile: Dockerfile
-    container_name: upgrade_weather_collector
-    environment:
-      - MINIO_ENDPOINT=minio:9000
-      - MINIO_ACCESS_KEY=${MINIO_ROOT_USER}
-      - MINIO_SECRET_KEY=${MINIO_ROOT_PASSWORD}
-      - MINIO_BUCKET=upgrade-raw
-      - API_BASE_URL=https://api.open-meteo.com/v1
-      - BATCH_SIZE=50
-      - SAVE_JSON=true
-      - SAVE_PARQUET=true
-    networks:
-      - upgrade_network
-    depends_on:
-      minio:
-        condition: service_healthy
-    restart: "no"
+  # weather-collector:
+  #   build:
+  #     context: ../../weather-collector
+  #     dockerfile: Dockerfile
+  #   container_name: upgrade_weather_collector
+  #   environment:
+  #     - MINIO_ENDPOINT=minio:9000
+  #     - MINIO_ACCESS_KEY=${MINIO_ROOT_USER}
+  #     - MINIO_SECRET_KEY=${MINIO_ROOT_PASSWORD}
+  #     - MINIO_BUCKET=upgrade-raw
+  #     - API_BASE_URL=https://api.open-meteo.com/v1
+  #     - BATCH_SIZE=50
+  #     - SAVE_JSON=true
+  #     - SAVE_PARQUET=true
+  #   networks:
+  #     - upgrade_network
+  #   depends_on:
+  #     minio:
+  #       condition: service_healthy
+  #   restart: "no"
 
 networks:
   upgrade_network:

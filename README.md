@@ -36,7 +36,7 @@ Foster a dynamic Romanian-Moldovan research collaboration focusing on rapid path
 
 ## Technical Architecture
 
-![UPGRADE Project Architecture](diagram.png)
+![UPGRADE Project Architecture](docs/diagram.png)
 
 *Figure 1: Complete system architecture showing data flows from weather APIs and FASTQ files through the bioinformatics pipeline to analytics dashboards.*
 
@@ -336,3 +336,7 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 ## Acknowledgments
 
 This work is supported by the Romanian-Moldovan bilateral research collaboration grant program. We acknowledge the contributions of all team members and the support from both participating institutions.
+
+## TODOs
+
+[TODO.md](TODO)
