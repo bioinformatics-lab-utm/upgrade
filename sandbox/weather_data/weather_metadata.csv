@@ -1,0 +1,32 @@
+city_id,city_name,county,country,latitude,longitude,elevation,geographic_zone,climate_zone,last_updated
+ro_bucharest,Bucharest,Bucharest,Romania,44.4268,26.1025,90,southern,continental_south,2025-09-04T11:28:01.989956+00:00
+ro_suceava,Suceava,Suceava,Romania,47.6635,26.2535,325,northern,continental_north,2025-09-04T11:28:01.990265+00:00
+ro_cluj,Cluj-Napoca,Cluj,Romania,46.7712,23.6236,411,central,highland,2025-09-04T11:28:01.990532+00:00
+ro_timisoara,Timisoara,Timis,Romania,45.7489,21.2087,90,western,temperate_continental,2025-09-04T11:28:01.990783+00:00
+ro_constanta,Constanta,Constanta,Romania,44.1598,28.6348,25,coastal,continental_south,2025-09-04T11:28:01.991075+00:00
+ro_iasi,Iasi,Iasi,Romania,47.1585,27.6014,95,northern,continental_north,2025-09-04T11:28:01.991341+00:00
+ro_brasov,Brasov,Brasov,Romania,45.6427,25.5887,625,mountain,highland,2025-09-04T11:28:01.991608+00:00
+ro_galati,Galati,Galati,Romania,45.4353,28.008,55,coastal,temperate_continental,2025-09-04T11:28:01.991860+00:00
+ro_craiova,Craiova,Dolj,Romania,44.3302,23.7949,100,southern,continental_south,2025-09-04T11:28:01.992051+00:00
+ro_ploiesti,Ploiesti,Prahova,Romania,44.9447,26.014,150,southern,continental_south,2025-09-04T11:28:01.992286+00:00
+ro_oradea,Oradea,Bihor,Romania,47.0465,21.9189,150,northern,continental_north,2025-09-04T11:28:01.992515+00:00
+ro_bacau,Bacau,Bacau,Romania,46.567,26.9146,165,central,temperate_continental,2025-09-04T11:28:01.992741+00:00
+ro_pitesti,Pitesti,Arges,Romania,44.8565,24.8692,287,southern,continental_south,2025-09-04T11:28:01.993167+00:00
+ro_arad,Arad,Arad,Romania,46.1866,21.3123,117,western,temperate_continental,2025-09-04T11:28:01.993421+00:00
+ro_sibiu,Sibiu,Sibiu,Romania,45.7983,24.1256,415,central,highland,2025-09-04T11:28:01.993670+00:00
+ro_targu_mures,Targu Mures,Mures,Romania,46.5425,24.5579,308,central,temperate_continental,2025-09-04T11:28:01.993909+00:00
+ro_baia_mare,Baia Mare,Maramures,Romania,47.6587,23.5681,225,northern,continental_north,2025-09-04T11:28:01.994872+00:00
+ro_buzau,Buzau,Buzau,Romania,45.1561,26.8206,95,central,temperate_continental,2025-09-04T11:28:01.995062+00:00
+ro_botosani,Botosani,Botosani,Romania,47.7482,26.6618,130,northern,continental_north,2025-09-04T11:28:01.995225+00:00
+ro_satu_mare,Satu Mare,Satu Mare,Romania,47.793,22.8574,123,northern,continental_north,2025-09-04T11:28:01.995373+00:00
+ro_rm_valcea,Ramnicu Valcea,Valcea,Romania,45.1069,24.3699,250,central,temperate_continental,2025-09-04T11:28:01.995515+00:00
+ro_drobeta,Drobeta-Turnu Severin,Mehedinti,Romania,44.631,22.6563,65,southern,continental_south,2025-09-04T11:28:01.995652+00:00
+ro_piatra_neamt,Piatra Neamt,Neamt,Romania,46.9268,26.3681,345,central,temperate_continental,2025-09-04T11:28:01.995789+00:00
+ro_tulcea,Tulcea,Tulcea,Romania,45.1667,28.8,30,coastal,temperate_continental,2025-09-04T11:28:01.995925+00:00
+ro_alba_iulia,Alba Iulia,Alba,Romania,46.0648,23.5717,330,central,temperate_continental,2025-09-04T11:28:01.996068+00:00
+ro_deva,Deva,Hunedoara,Romania,45.8761,22.8972,230,western,temperate_continental,2025-09-04T11:28:01.996204+00:00
+ro_focsani,Focsani,Vrancea,Romania,45.6943,27.1843,55,central,temperate_continental,2025-09-04T11:28:01.996355+00:00
+ro_miercurea_ciuc,Miercurea Ciuc,Harghita,Romania,46.3558,25.8003,661,mountain,highland,2025-09-04T11:28:01.996490+00:00
+ro_predeal,Predeal,Brasov,Romania,45.5089,25.57,1110,mountain,alpine,2025-09-04T11:28:01.996626+00:00
+ro_mamaia,Mamaia,Constanta,Romania,44.2508,28.6561,10,coastal,continental_south,2025-09-04T11:28:01.996898+00:00
+ro_sinaia,Sinaia,Prahova,Romania,45.35,25.55,800,mountain,highland,2025-09-04T11:28:01.997031+00:00
