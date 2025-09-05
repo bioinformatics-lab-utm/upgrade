@@ -4,22 +4,22 @@
 
 #### Weather Data Ingestion
 - [x] Open Meteo API test
-- [ ] Rework docker-compose.yml
+- [x] Rework docker-compose.yml
 - [ ] Dockerfile?
 - [ ] Producer
 - [ ] Consumer
-- [ ] database/migrations
+- [x] database/migrations
 
 #### Project Structure
 - [ ] Create `/weather-collector/` directory with subdirectories
-- [ ] Create `/airflow/dags/` directory structure
-- [ ] Create `/database/migrations/` directory
+- [x] Create `/airflow/dags/` directory structure
+- [x] Create `/database/migrations/` directory
 - [ ] Create `/database/seed/` directory
 - [ ] Create `/config/` directory
-- [ ] Create `/docs/` directory
+- [x] Create `/docs/` directory
 - [ ] Create `/scripts/` directory
 - [ ] Set up `.gitignore` with proper exclusions
-- [ ] Initialize git repository
+- [x] Initialize git repository
 
 #### Docker Infrastructure
 - [ ] Create `docker-compose.yml` with PostgreSQL service
