@@ -1,0 +1,550 @@
+@startuml UPGRADE_Extended_Database_Schema
+
+skinparam entity {
+    BackgroundColor lightblue
+    BorderColor black
+}
+
+skinparam package {
+    BackgroundColor lightyellow
+    BorderColor darkblue
+}
+
+title UPGRADE Extended Database Schema\nAligned with System Architecture
+
+package "Core Reference" {
+  entity institutions {
+    * institution_id : serial
+    --
+    name : varchar(255)
+    country : varchar(100)
+    city : varchar(100)
+    type : varchar(100)
+    created_at : timestamp
+  }
+
+  entity researchers {
+    * researcher_id : serial
+    --
+    full_name : varchar(200)
+    role : varchar(100)
+    email : varchar(150)
+    * institution_id : int
+    created_at : timestamp
+  }
+
+  entity locations {
+    * location_id : serial
+    --
+    location_name : varchar(255)
+    country : varchar(100)
+    region : varchar(100)
+    latitude : decimal(9,6)
+    longitude : decimal(9,6)
+    campus_area : varchar(100)
+    traffic_density : varchar(50)
+    surface_material : varchar(100)
+    is_active : boolean
+    created_at : timestamp
+  }
+}
+
+package "User Management" {
+  entity users {
+    * user_id : serial
+    --
+    username : varchar(100)
+    email : varchar(150)
+    user_type : varchar(50)
+    password_hash : varchar(255)
+    last_login : timestamp
+    is_active : boolean
+    created_at : timestamp
+  }
+
+  entity user_sessions {
+    * session_id : serial
+    --
+    * user_id : int
+    session_token : varchar(255)
+    ip_address : inet
+    user_agent : varchar(500)
+    started_at : timestamp
+    expires_at : timestamp
+    is_active : boolean
+  }
+
+  entity user_permissions {
+    * permission_id : serial
+    --
+    * user_id : int
+    resource_type : varchar(100)
+    permission_level : varchar(50)
+    granted_by : int
+    granted_at : timestamp
+  }
+}
+
+package "Workflow Orchestration" {
+  entity airflow_dags {
+    * dag_id : varchar(150)
+    --
+    dag_name : varchar(255)
+    description : text
+    schedule_interval : varchar(100)
+    is_active : boolean
+    owner : varchar(100)
+    created_at : timestamp
+  }
+
+  entity airflow_runs {
+    * run_id : serial
+    --
+    * dag_id : varchar(150)
+    airflow_run_id : varchar(200)
+    execution_date : timestamp
+    start_date : timestamp
+    end_date : timestamp
+    state : varchar(50)
+    external_trigger : boolean
+    conf : jsonb
+    created_at : timestamp
+  }
+
+  entity airflow_tasks {
+    * task_id : serial
+    --
+    * run_id : int
+    task_name : varchar(200)
+    start_date : timestamp
+    end_date : timestamp
+    duration : interval
+    state : varchar(50)
+    try_number : int
+    max_tries : int
+    hostname : varchar(255)
+    log_url : varchar(500)
+  }
+}
+
+package "NextFlow Pipeline" {
+  entity nextflow_workflows {
+    * workflow_id : serial
+    --
+    workflow_name : varchar(200)
+    workflow_version : varchar(50)
+    nextflow_version : varchar(50)
+    workflow_script_path : varchar(500)
+    config_files : text[]
+    is_active : boolean
+    created_at : timestamp
+  }
+
+  entity nextflow_executions {
+    * execution_id : serial
+    --
+    * workflow_id : int
+    * airflow_run_id : int
+    execution_name : varchar(200)
+    work_directory : varchar(500)
+    execution_status : varchar(50)
+    start_time : timestamp
+    complete_time : timestamp
+    duration : interval
+    success : boolean
+    exit_status : int
+    error_message : text
+    trace_file_path : varchar(500)
+    report_file_path : varchar(500)
+  }
+
+  entity nextflow_processes {
+    * process_id : serial
+    --
+    * execution_id : int
+    process_name : varchar(200)
+    task_id : varchar(200)
+    process_index : int
+    status : varchar(50)
+    exit_code : int
+    start_time : timestamp
+    complete_time : timestamp
+    duration : interval
+    cpu_usage : decimal(8,2)
+    memory_usage_mb : bigint
+    disk_read_mb : bigint
+    disk_write_mb : bigint
+    container_image : varchar(300)
+    script_content : text
+    work_directory : varchar(500)
+  }
+}
+
+package "Processing Queue" {
+  entity processing_queue {
+    * queue_id : serial
+    --
+    * sample_id : int
+    pipeline_type : varchar(100)
+    priority : int
+    queue_status : varchar(50)
+    estimated_runtime_minutes : int
+    worker_node : varchar(100)
+    queued_at : timestamp
+    started_at : timestamp
+    completed_at : timestamp
+    retry_count : int
+    max_retries : int
+    error_message : text
+  }
+
+  entity worker_nodes {
+    * node_id : serial
+    --
+    node_name : varchar(100)
+    node_type : varchar(50)
+    cpu_cores : int
+    memory_gb : int
+    disk_gb : int
+    status : varchar(50)
+    current_jobs : int
+    max_jobs : int
+    last_heartbeat : timestamp
+    created_at : timestamp
+  }
+}
+
+package "Sampling & Analysis" {
+  entity samples {
+    * sample_id : serial
+    --
+    sample_code : varchar(100)
+    collection_date : date
+    * location_id : int
+    * campaign_id : int
+    * collector_id : int
+    sample_type : varchar(100)
+    sequencing_platform : varchar(150)
+    status : varchar(50)
+    created_at : timestamp
+  }
+
+  entity sequencing_runs {
+    * run_id : serial
+    --
+    * sample_id : int
+    platform : varchar(100)
+    flowcell_type : varchar(50)
+    run_date : date
+    total_reads : bigint
+    passed_reads : bigint
+    avg_quality_score : decimal(5,2)
+    status : varchar(50)
+    created_at : timestamp
+  }
+}
+
+package "Pipeline Results" {
+  entity quality_control_results {
+    * qc_id : serial
+    --
+    * sample_id : int
+    * process_id : int
+    qc_tool : varchar(100)
+    total_reads : bigint
+    passed_reads : bigint
+    failed_reads : bigint
+    pass_rate : decimal(5,2)
+    mean_quality_score : decimal(5,2)
+    gc_content : decimal(5,2)
+    contamination_rate : decimal(5,2)
+    is_passed : boolean
+    qc_report_path : varchar(500)
+    created_at : timestamp
+  }
+
+  entity assemblies {
+    * assembly_id : serial
+    --
+    * sample_id : int
+    * process_id : int
+    assembler : varchar(100)
+    assembler_version : varchar(50)
+    total_contigs : int
+    total_length : bigint
+    n50_contig : int
+    longest_contig : int
+    gc_content : decimal(5,2)
+    assembly_score : decimal(5,2)
+    assembly_fasta_path : varchar(500)
+    assembly_graph_path : varchar(500)
+    created_at : timestamp
+  }
+
+  entity binning_results {
+    * binning_id : serial
+    --
+    * assembly_id : int
+    * process_id : int
+    binner : varchar(100)
+    binner_version : varchar(50)
+    total_bins : int
+    high_quality_bins : int
+    medium_quality_bins : int
+    low_quality_bins : int
+    average_completeness : decimal(5,2)
+    average_contamination : decimal(5,2)
+    bins_directory_path : varchar(500)
+    created_at : timestamp
+  }
+
+  entity functional_annotations {
+    * annotation_id : serial
+    --
+    * assembly_id : int
+    * process_id : int
+    annotator : varchar(100)
+    annotator_version : varchar(50)
+    total_genes : int
+    coding_sequences : int
+    rrna_genes : int
+    trna_genes : int
+    hypothetical_proteins : int
+    annotation_gff_path : varchar(500)
+    annotation_faa_path : varchar(500)
+    annotation_gbk_path : varchar(500)
+    created_at : timestamp
+  }
+
+  entity detected_organisms {
+    * detection_id : serial
+    --
+    * sample_id : int
+    * process_id : int
+    organism_name : varchar(200)
+    taxonomy_id : varchar(50)
+    classification_tool : varchar(100)
+    abundance : decimal(10,6)
+    confidence_score : decimal(5,2)
+    read_count : int
+    created_at : timestamp
+  }
+
+  entity resistance_genes {
+    * rg_id : serial
+    --
+    * sample_id : int
+    * process_id : int
+    gene_name : varchar(200)
+    accession : varchar(100)
+    detection_tool : varchar(100)
+    coverage : decimal(10,2)
+    identity : decimal(5,2)
+    resistance_mechanism : varchar(200)
+    confidence_level : varchar(50)
+    created_at : timestamp
+  }
+
+  entity virulence_factors {
+    * vf_id : serial
+    --
+    * sample_id : int
+    * process_id : int
+    gene_name : varchar(200)
+    accession : varchar(100)
+    vf_category : varchar(150)
+    detection_tool : varchar(100)
+    coverage : decimal(10,2)
+    identity : decimal(5,2)
+    clinical_significance : varchar(100)
+    created_at : timestamp
+  }
+}
+
+package "MinIO Data Lake" {
+  entity minio_buckets {
+    * bucket_id : serial
+    --
+    bucket_name : varchar(100)
+    layer_type : varchar(20)
+    description : text
+    retention_policy : varchar(100)
+    encryption_enabled : boolean
+    created_at : timestamp
+  }
+
+  entity minio_objects {
+    * object_id : serial
+    --
+    * bucket_id : int
+    object_key : varchar(500)
+    object_size_bytes : bigint
+    content_type : varchar(100)
+    etag : varchar(100)
+    last_modified : timestamp
+    storage_class : varchar(50)
+    metadata : jsonb
+    created_at : timestamp
+  }
+
+  entity data_lineage {
+    * lineage_id : serial
+    --
+    * source_object_id : int
+    * target_object_id : int
+    transformation_type : varchar(100)
+    transformation_process : varchar(200)
+    transformation_time : timestamp
+    metadata : jsonb
+  }
+
+  entity layer_transitions {
+    * transition_id : serial
+    --
+    * sample_id : int
+    * source_object_id : int
+    * target_object_id : int
+    source_layer : varchar(20)
+    target_layer : varchar(20)
+    transition_type : varchar(100)
+    processing_time : interval
+    validation_status : varchar(50)
+    quality_score : decimal(5,2)
+    transition_metadata : jsonb
+    created_at : timestamp
+  }
+}
+
+package "Weather System" {
+  entity weather_measurements {
+    * weather_id : serial
+    --
+    * location_id : int
+    measurement_datetime : timestamptz
+    temperature_2m : decimal(5,2)
+    relative_humidity_2m : int
+    precipitation : decimal(6,2)
+    wind_speed_10m : decimal(5,2)
+    pressure_msl : decimal(7,2)
+    quality_score : decimal(3,2)
+    data_quality : varchar(20)
+    created_at : timestamptz
+  }
+}
+
+package "Analytics & Visualization" {
+  entity metabase_datasets {
+    * dataset_id : serial
+    --
+    dataset_name : varchar(200)
+    dataset_type : varchar(100)
+    metabase_table_id : int
+    source_tables : text[]
+    refresh_frequency : varchar(50)
+    last_updated : timestamp
+    row_count : bigint
+    data_sources : text[]
+    created_at : timestamp
+  }
+
+  entity dashboard_feeds {
+    * feed_id : serial
+    --
+    * dataset_id : int
+    feed_type : varchar(100)
+    target_dashboard : varchar(200)
+    update_trigger : varchar(100)
+    last_refresh : timestamp
+    refresh_status : varchar(50)
+    error_message : text
+    performance_metrics : jsonb
+  }
+
+  entity api_endpoints {
+    * endpoint_id : serial
+    --
+    endpoint_path : varchar(500)
+    http_method : varchar(10)
+    description : text
+    data_sources : text[]
+    rate_limit : int
+    authentication_required : boolean
+    created_at : timestamp
+  }
+
+  entity api_requests {
+    * request_id : serial
+    --
+    * endpoint_id : int
+    * user_id : int
+    request_timestamp : timestamp
+    response_time_ms : int
+    status_code : int
+    request_size_bytes : int
+    response_size_bytes : int
+    ip_address : inet
+    user_agent : varchar(500)
+  }
+}
+
+' Relationships
+users ||--o{ user_sessions
+users ||--o{ user_permissions
+airflow_dags ||--o{ airflow_runs
+airflow_runs ||--o{ airflow_tasks
+nextflow_workflows ||--o{ nextflow_executions
+nextflow_executions ||--o{ nextflow_processes
+airflow_runs ||--o{ nextflow_executions
+samples ||--o{ processing_queue
+processing_queue }|--|| worker_nodes
+samples ||--o{ sequencing_runs
+samples ||--o{ quality_control_results
+samples ||--o{ assemblies
+assemblies ||--o{ binning_results
+assemblies ||--o{ functional_annotations
+samples ||--o{ detected_organisms
+samples ||--o{ resistance_genes
+samples ||--o{ virulence_factors
+nextflow_processes ||--o{ quality_control_results
+nextflow_processes ||--o{ assemblies
+nextflow_processes ||--o{ detected_organisms
+nextflow_processes ||--o{ resistance_genes
+nextflow_processes ||--o{ virulence_factors
+minio_buckets ||--o{ minio_objects
+minio_objects ||--o{ data_lineage
+samples ||--o{ layer_transitions
+minio_objects ||--o{ layer_transitions
+locations ||--o{ weather_measurements
+samples ||--o{ metabase_datasets
+metabase_datasets ||--o{ dashboard_feeds
+api_endpoints ||--o{ api_requests
+users ||--o{ api_requests
+
+note right of nextflow_processes
+**Pipeline Tracking:**
+Each step tracked:
+• Trimmomatic (QC)
+• Flye (Assembly) 
+• MetaBAT (Binning)
+• Kraken2 (Taxonomy)
+• Prokka (Annotation)
+• Abricate (AMR Detection)
+• VFDB (Virulence)
+end note
+
+note top of minio_objects
+**4-Layer MinIO Architecture:**
+Raw → Bronze → Silver → Gold
+Full data lineage tracking
+Automated layer transitions
+end note
+
+note bottom of metabase_datasets
+**Real-time Analytics:**
+• Interactive pathogen maps
+• AMR distribution analysis  
+• Weather correlations
+• Alert dashboards
+end note
+
+@enduml

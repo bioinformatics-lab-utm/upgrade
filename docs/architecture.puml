@@ -1,0 +1,182 @@
+@startuml UPGRADE_Architecture
+
+skinparam rectangle {
+    BackgroundColor lightblue
+    BorderColor black
+}
+
+skinparam package {
+    BackgroundColor lightyellow
+    BorderColor darkblue
+}
+
+title UPGRADE Project - Genomic Surveillance Platform
+
+package "Data Sources" {
+    [Sample\nMetadata] as sample_meta
+    [Weather/API\n(Hourly)] as weather_api
+    [Laboratory\nFASTQ Files] as lab_files
+}
+
+note top of sample_meta
+**Key Features:**
+• Weather: 13+ cities, hourly
+• Genomic: FASTQ files (+500GB)
+• Analysis: Real-time processing
+end note
+
+package "Users" {
+    [Lab Technicians] as lab_tech
+    [Public Health\nOfficials] as pub_health
+    [Researchers] as researchers
+}
+
+package "Data Ingestion" {
+    rectangle "Airflow" as airflow {
+        [Weather ETL] as weather_etl
+        [Sample Processing] as sample_proc
+        [File Upload] as file_upload
+    }
+}
+
+package "NextFlow Bioinformatics Pipeline" {
+    rectangle "Pre-processing" as preproc {
+        [Quality Control\n(Trimmomatic)] as qc
+    }
+    
+    [Assembly\n(Flye)] as assembly
+    [Binning\n(MetaBAT)] as binning
+    
+    rectangle "Analysis" as analysis {
+        [Taxonomic Profiling\n(Kraken2)] as taxonomy
+        [Functional Annotation\n(Prokka)] as annotation
+        [PATO Intersection] as pato
+    }
+    
+    rectangle "Detection" as detection {
+        [AMR Detection\n(Abricate + CARD)] as amr_detect
+        [Virulence Detection\n(VFDB)] as vir_detect
+    }
+}
+
+note right of preproc
+**Processing Workflow:**
+QC -> Quality Control
+   -> Assembly (Flye)
+   -> Taxonomic Profiling
+   -> AMR Detection
+   -> Functional Annotation
+end note
+
+package "Data Lake (MinIO)" {
+    package "Raw Layer" {
+        [weather-api/] as weather_raw
+        [metadata/] as meta_raw
+        [fastq/] as fastq_raw
+    }
+    
+    package "Bronze Layer" {
+        [qc-fastq/] as qc_fastq
+        [validated-weather/] as validated_weather
+        [sample-registry/] as sample_registry
+    }
+    
+    package "Silver Layer" {
+        [assemblies/] as assemblies
+        [pathogens-lists/] as pathogens
+        [virulence-results/] as virulence
+        [amr-results/] as amr_results
+        [taxonomic-profiles/] as taxonomy_profiles
+    }
+    
+    package "Gold Layer" {
+        [integrated-datasets/] as integrated
+        [dashboard-feeds/] as dashboard
+    }
+}
+
+package "PostgreSQL Warehouse" {
+    package "Dimension Tables" {
+        [locations] as locations
+        [samples] as samples
+    }
+    
+    package "Fact Tables" {
+        [weather_measurements] as weather_facts
+        [detected_pathogens] as pathogen_facts
+        [virulence_factors] as virulence_facts
+        [amr_genes] as amr_facts
+    }
+}
+
+package "Analytics & Visualization" {
+    [Metabase\nWarehouse] as metabase
+    [REST API] as rest_api
+    [Data Quality\nMonitoring] as dq_monitor
+}
+
+note bottom of metabase
+**Dashboard Features:**
+• Interactive pathogen maps
+• AMR distribution analysis
+• Weather-pathogen correlations
+• Real-time alert system
+end note
+
+' Data Sources to Ingestion
+sample_meta --> airflow
+weather_api --> weather_etl
+lab_files --> file_upload
+
+' Users to System
+lab_tech --> airflow
+pub_health --> metabase
+researchers --> rest_api
+
+' Ingestion to Pipeline
+weather_etl --> weather_raw
+sample_proc --> preproc
+file_upload --> fastq_raw
+
+' Pipeline Flow
+preproc --> qc
+qc --> assembly
+assembly --> binning
+binning --> analysis
+analysis --> taxonomy
+analysis --> annotation
+analysis --> pato
+analysis --> detection
+detection --> amr_detect
+detection --> vir_detect
+
+' Pipeline to Data Lake
+qc --> qc_fastq
+assembly --> assemblies
+taxonomy --> taxonomy_profiles
+annotation --> pathogens
+amr_detect --> amr_results
+vir_detect --> virulence
+pato --> integrated
+
+' Data Lake Flow
+weather_raw --> validated_weather : "validated"
+qc_fastq --> assemblies : "processed"
+assemblies --> integrated : "integrated"
+amr_results --> dashboard
+
+' Warehouse Integration
+integrated --> locations
+dashboard --> samples
+amr_results --> amr_facts
+virulence --> virulence_facts
+pathogens --> pathogen_facts
+validated_weather --> weather_facts
+
+' Analytics
+weather_facts --> metabase
+pathogen_facts --> metabase
+amr_facts --> rest_api
+metabase --> dq_monitor
+
+@enduml
