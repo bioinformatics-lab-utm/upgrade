@@ -7,6 +7,10 @@
 - [x] Rework docker-compose.yml
 - [ ] Dockerfile?
 - [ ] Producer
+    - [ ] https://medium.com/@raveena.r1604/live-streaming-of-weather-data-through-kafka-cb622546973d
+    - [ ] https://dev.to/milcah03/real-time-weather-data-pipeline-using-kafka-confluent-and-cassandra-4425
+    - [ ] https://github.com/Sakthe-Balan/WeatherAnalysis_Spark
+    - [ ] https://github.com/open-meteo/python-requests
 - [ ] Consumer
 - [x] database/migrations
 
