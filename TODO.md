@@ -15,7 +15,6 @@
 - [x] database/migrations
 
 #### Project Structure
-- [ ] Create `/weather-collector/` directory with subdirectories
 - [x] Create `/airflow/dags/` directory structure
 - [x] Create `/database/migrations/` directory
 - [ ] Create `/database/seed/` directory
@@ -26,16 +25,17 @@
 - [x] Initialize git repository
 
 #### Docker Infrastructure
-- [ ] Create `docker-compose.yml` with PostgreSQL service
-- [ ] Add MinIO service with persistent storage and console
-- [ ] Add Redis service for Airflow caching
-- [ ] Add Airflow webserver service
-- [ ] Add Airflow scheduler service
+- [x] Create `docker-compose.yml` with PostgreSQL service
+- [x] Add MinIO service with persistent storage and console
+- [x] Add Redis service for Airflow caching
+- [x] Add Airflow webserver service
+- [x] Add Airflow scheduler service
 - [ ] Add Airflow worker service
-- [ ] Configure inter-service networking
-- [ ] Add health checks for all services
+- [x] Configure inter-service networking
+- [x] Add health checks for all services
 - [ ] Create `.env.example` file
 - [x] Create `.env.local` file
+- [ ] Rework `postgres` healthcheck
 
 #### Weather Collector Container
 - [ ] Create `weather-collector/Dockerfile` with Python 3.11 base
@@ -61,8 +61,8 @@
 ### Days 3-4: Database Schema Implementation
 
 #### Migration Scripts
-- [ ] Create initial schema migration file
-- [ ] Design locations table with UUID primary key
+- [x] Create initial schema migration file
+- [x] Design locations table with UUID primary key
 - [ ] Add country_code field (2 characters)
 - [ ] Add country_name field (100 characters)
 - [ ] Add city field (100 characters)
@@ -134,6 +134,17 @@
 - [ ] Create database connection test script
 - [ ] Test Airflow postgres connection setup
 - [ ] Verify database connection pooling works
+
+#### Weather Data Pipeline Status
+- [x] Weather Producer implemented and collecting data
+- [x] Kafka integration functional with weather-data topic  
+- [x] Weather Consumer connected to Kafka successfully
+- [x] Database schema ready with weather_data table
+- [x] 26 cities loaded (20 Romania + 6 Moldova) with coordinates
+- [ ] **BLOCKING ISSUE**: Weather Consumer not writing to PostgreSQL
+    - Data flows: API → Producer → Kafka → Consumer (stops here)
+    - No database writes despite successful Kafka message consumption
+    - Next step: Debug Consumer database write logic
 
 ### Days 5-7: Weather Collector Implementation
 
@@ -712,3 +723,4 @@
 - [ ] Production-ready deployment configuration
 - [ ] Live demonstration of system capabilities
 - [ ] 30 days of historical weather data collected and stored
+

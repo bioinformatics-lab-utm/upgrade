@@ -4,6 +4,18 @@
 -- Version: 1.0.0
 -- Applied: 2025-01-01
 
+-- Create user upgrade if not exists (for weather-consumer connection)
+DO $$
+BEGIN
+    IF NOT EXISTS (SELECT FROM pg_catalog.pg_roles WHERE rolname = 'upgrade') THEN
+        CREATE USER upgrade WITH PASSWORD 'upgrade123' CREATEDB CREATEROLE;
+        RAISE NOTICE 'User upgrade created successfully';
+    ELSE
+        RAISE NOTICE 'User upgrade already exists';
+    END IF;
+END
+$$;
+
 -- Enable required extensions
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 CREATE EXTENSION IF NOT EXISTS "pg_stat_statements";
@@ -443,6 +455,32 @@ CREATE TABLE collaboration_activities (
     CONSTRAINT valid_evaluation_score CHECK (evaluation_score >= 1 AND evaluation_score <= 5)
 );
 
+-- =========================
+-- Simple Weather Table for weather-consumer
+-- =========================
+
+-- Create a simple table that weather-consumer can use immediately
+CREATE TABLE weather_data (
+    id SERIAL PRIMARY KEY,
+    city VARCHAR(100),
+    country VARCHAR(100),
+    latitude DECIMAL(10,6),
+    longitude DECIMAL(10,6),
+    temperature DECIMAL(5,2),
+    humidity INTEGER,
+    wind_speed DECIMAL(5,2),
+    wind_direction INTEGER,
+    weather_description TEXT,
+    timestamp TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    data_source VARCHAR(50) DEFAULT 'open_meteo',
+    raw_data JSONB
+);
+
+-- Create indexes for the simple weather table
+CREATE INDEX idx_weather_data_city ON weather_data(city);
+CREATE INDEX idx_weather_data_timestamp ON weather_data(timestamp);
+CREATE INDEX idx_weather_data_location ON weather_data(latitude, longitude);
+
 -- Migration tracking table
 CREATE TABLE schema_migrations (
     version INTEGER PRIMARY KEY,
@@ -454,7 +492,7 @@ CREATE TABLE schema_migrations (
 
 -- Insert initial migration record
 INSERT INTO schema_migrations (version, description, checksum, migration_file) VALUES 
-(1, 'Initial UPGRADE project schema with weather integration', 'upgrade_initial_v1', '001_initial_upgrade_schema.sql');
+(1, 'Initial UPGRADE project schema with weather integration', 'upgrade_initial_v1_corrected', '001_initial_upgrade_schema.sql');
 
 -- =========================
 -- Triggers for updated_at timestamps
@@ -532,20 +570,72 @@ COMMENT ON TABLE institutions IS 'Research institutions participating in UPGRADE
 COMMENT ON TABLE researchers IS 'Researchers involved in the UPGRADE project';
 COMMENT ON TABLE locations IS 'Sampling locations with university campus-specific details';
 COMMENT ON TABLE weather_measurements IS 'Weather data from Open-Meteo API and other sources';
+COMMENT ON TABLE weather_data IS 'Simple weather data table for weather-consumer service';
 COMMENT ON TABLE sampling_campaigns IS 'Organized sampling campaigns across Romanian and Moldovan sites';
 COMMENT ON TABLE samples IS 'Individual samples collected during campaigns';
 COMMENT ON TABLE sample_metadata IS 'Detailed environmental and contextual metadata for samples';
 COMMENT ON TABLE collaboration_activities IS 'Cross-border collaboration tracking between Romanian and Moldovan teams';
 COMMENT ON TABLE biobank IS 'Sample storage and biobanking information';
 
--- Grant permissions for upgrade_user
+-- =========================
+-- Grant permissions for upgrade user
+-- =========================
+
+-- Grant all permissions to upgrade user
+GRANT USAGE ON SCHEMA public TO upgrade;
+GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA public TO upgrade;
+GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA public TO upgrade;
+GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA public TO upgrade;
+
+-- Ensure future tables are also accessible
+ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON TABLES TO upgrade;
+ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON SEQUENCES TO upgrade;
+ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT EXECUTE ON FUNCTIONS TO upgrade;
+
+-- Log successful completion
 DO $$
 BEGIN
-    IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'upgrade_user') THEN
-        GRANT USAGE ON SCHEMA public TO upgrade_user;
-        GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA public TO upgrade_user;
-        GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA public TO upgrade_user;
-        GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA public TO upgrade_user;
-    END IF;
+    RAISE NOTICE 'UPGRADE database schema created successfully!';
+    RAISE NOTICE 'User: upgrade';
+    RAISE NOTICE 'Database: % (current)', current_database();
+    RAISE NOTICE 'All permissions granted to upgrade user';
+    RAISE NOTICE 'Tables created: institutions, researchers, locations, weather_measurements, sampling_campaigns, samples, sample_metadata, biobank, hosts, collaboration_activities, schema_migrations';
 END
 $$;
+
+-- =========================
+-- Initial Cities Data
+-- =========================
+
+-- Insert key cities for UPGRADE project
+INSERT INTO locations (location_name, country, region, city, latitude, longitude, is_active, metadata) VALUES
+-- UPGRADE Partner Cities (High Priority)
+('Suceava Weather Station', 'Romania', 'Moldova', 'Suceava', 47.6635, 26.2535, true, '{"type": "weather_station", "priority": "high", "upgrade_partner": true}'),
+('Chisinau Weather Station', 'Moldova', 'Center', 'Chisinau', 47.0105, 28.8638, true, '{"type": "weather_station", "priority": "high", "upgrade_partner": true}'),
+
+-- Major Romanian Cities
+('Bucharest Weather Station', 'Romania', 'Muntenia', 'Bucharest', 44.4268, 26.1025, true, '{"type": "weather_station", "priority": "high"}'),
+('Cluj-Napoca Weather Station', 'Romania', 'Transilvania', 'Cluj-Napoca', 46.7712, 23.6236, true, '{"type": "weather_station", "priority": "high"}'),
+('Iasi Weather Station', 'Romania', 'Moldova', 'Iasi', 47.1585, 27.6014, true, '{"type": "weather_station", "priority": "high"}'),
+('Constanta Weather Station', 'Romania', 'Dobrogea', 'Constanta', 44.1598, 28.6348, true, '{"type": "weather_station", "priority": "high"}'),
+('Timisoara Weather Station', 'Romania', 'Banat', 'Timisoara', 45.7494, 21.2272, true, '{"type": "weather_station", "priority": "high"}'),
+
+-- Eastern Romania (Moldova region) - Key for UPGRADE project
+('Bacau Weather Station', 'Romania', 'Moldova', 'Bacau', 46.5670, 26.9146, true, '{"type": "weather_station", "region": "eastern_romania"}'),
+('Galati Weather Station', 'Romania', 'Moldova', 'Galati', 45.4353, 28.0080, true, '{"type": "weather_station", "region": "eastern_romania"}'),
+('Braila Weather Station', 'Romania', 'Moldova', 'Braila', 45.2692, 27.9574, true, '{"type": "weather_station", "region": "eastern_romania"}'),
+('Vaslui Weather Station', 'Romania', 'Moldova', 'Vaslui', 46.6407, 27.7276, true, '{"type": "weather_station", "region": "eastern_romania"}'),
+('Botosani Weather Station', 'Romania', 'Moldova', 'Botosani', 47.7462, 26.6659, true, '{"type": "weather_station", "region": "eastern_romania"}'),
+('Piatra Neamt Weather Station', 'Romania', 'Moldova', 'Piatra Neamt', 46.9266, 26.3812, true, '{"type": "weather_station", "region": "eastern_romania"}'),
+
+-- Major Moldovan Cities
+('Balti Weather Station', 'Moldova', 'North', 'Balti', 47.7615, 27.9297, true, '{"type": "weather_station", "priority": "high"}'),
+('Cahul Weather Station', 'Moldova', 'South', 'Cahul', 45.9081, 28.1947, true, '{"type": "weather_station"}'),
+('Ungheni Weather Station', 'Moldova', 'Center', 'Ungheni', 47.2111, 27.8056, true, '{"type": "weather_station"}'),
+('Soroca Weather Station', 'Moldova', 'North', 'Soroca', 48.1581, 28.2856, true, '{"type": "weather_station"}'),
+('Orhei Weather Station', 'Moldova', 'Center', 'Orhei', 47.3831, 28.8222, true, '{"type": "weather_station"}'),
+
+-- Additional Romanian cities
+('Brasov Weather Station', 'Romania', 'Transilvania', 'Brasov', 45.6427, 25.5887, true, '{"type": "weather_station"}'),
+('Ploiesti Weather Station', 'Romania', 'Muntenia', 'Ploiesti', 44.9414, 26.0297, true, '{"type": "weather_station"}'),
+('Craiova Weather Station', 'Romania', 'Oltenia', 'Craiova', 44.3302, 23.7949, true, '{"type": "weather_station"}');
