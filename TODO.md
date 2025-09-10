@@ -1,20 +1,18 @@
-## Week 1: Infrastructure & Data Foundation
+# UPGRADE Project TODO
 
-### Days 1-2: Docker Environment Setup
+## 1. Infrastructure & Docker Environment
 
-#### Weather Data Ingestion
+### Docker Environment Setup
 - [x] Open Meteo API test
 - [x] Rework docker-compose.yml
-- [ ] Dockerfile?
-- [ ] Producer
-    - [ ] https://medium.com/@raveena.r1604/live-streaming-of-weather-data-through-kafka-cb622546973d
-    - [ ] https://dev.to/milcah03/real-time-weather-data-pipeline-using-kafka-confluent-and-cassandra-4425
-    - [ ] https://github.com/Sakthe-Balan/WeatherAnalysis_Spark
-    - [ ] https://github.com/open-meteo/python-requests
-- [ ] Consumer
-- [x] database/migrations
+- [ ] Dockerfile optimization
+- [x] Configure inter-service networking
+- [x] Add health checks for all services
+- [ ] Create `.env.example` file
+- [x] Create `.env.local` file
+- [ ] Rework `postgres` healthcheck
 
-#### Project Structure
+### Project Structure
 - [x] Create `/airflow/dags/` directory structure
 - [x] Create `/database/migrations/` directory
 - [ ] Create `/database/seed/` directory
@@ -24,32 +22,15 @@
 - [ ] Set up `.gitignore` with proper exclusions
 - [x] Initialize git repository
 
-#### Docker Infrastructure
+### Core Services
 - [x] Create `docker-compose.yml` with PostgreSQL service
 - [x] Add MinIO service with persistent storage and console
 - [x] Add Redis service for Airflow caching
 - [x] Add Airflow webserver service
 - [x] Add Airflow scheduler service
 - [ ] Add Airflow worker service
-- [x] Configure inter-service networking
-- [x] Add health checks for all services
-- [ ] Create `.env.example` file
-- [x] Create `.env.local` file
-- [ ] Rework `postgres` healthcheck
 
-#### Weather Collector Container
-- [ ] Create `weather-collector/Dockerfile` with Python 3.11 base
-- [ ] Create `weather-collector/requirements.txt` with dependencies
-- [ ] Add requests library for HTTP calls
-- [ ] Add pandas library for data processing
-- [ ] Add pyarrow library for Parquet files
-- [ ] Add minio library for object storage
-- [ ] Add python-dotenv for environment variables
-- [ ] Add schedule library for task scheduling
-- [ ] Create `weather-collector/src/` source structure
-- [ ] Test container build process
-
-#### Environment Validation
+### Environment Validation
 - [ ] Verify PostgreSQL accessible on localhost:5432
 - [ ] Verify MinIO console accessible on localhost:9001
 - [ ] Verify MinIO API accessible on localhost:9000
@@ -58,9 +39,11 @@
 - [ ] Confirm all services show "healthy" status
 - [ ] Test inter-service network communication
 
-### Days 3-4: Database Schema Implementation
+---
 
-#### Migration Scripts
+## 2. Database Schema & Data Models
+
+### Migration Scripts
 - [x] Create initial schema migration file
 - [x] Design locations table with UUID primary key
 - [ ] Add country_code field (2 characters)
@@ -77,7 +60,7 @@
 - [ ] Add created_at timestamp with timezone
 - [ ] Add updated_at timestamp with timezone
 
-#### Weather Measurements Table
+### Weather Measurements Table
 - [ ] Design weather_measurements table with UUID primary key
 - [ ] Add location_id foreign key reference
 - [ ] Add measured_at timestamp with timezone
@@ -96,7 +79,19 @@
 - [ ] Add data_quality_score field (decimal 3,2)
 - [ ] Add created_at timestamp with timezone
 
-#### Database Indexes & Constraints
+### Bioinformatics Database Schema
+- [ ] Design `samples` table for genomic sample metadata
+- [ ] Create `processing_jobs` table for pipeline execution tracking
+- [ ] Add `pipeline_runs` table with execution metadata
+- [ ] Create `taxonomic_profiles` table for classification results
+- [ ] Add `pathogen_detections` table with confidence scores
+- [ ] Create `resistance_genes` table with ARG annotations
+- [ ] Add `functional_annotations` table for protein functions
+- [ ] Create `assembly_stats` table for assembly quality metrics
+- [ ] Add `sample_quality` table for QC metrics
+- [ ] Create relationships between weather and genomic data
+
+### Database Indexes & Constraints
 - [ ] Create index on weather_measurements location_id and measured_at
 - [ ] Create index on weather_measurements measured_at only
 - [ ] Create partial index on locations is_active field
@@ -104,38 +99,29 @@
 - [ ] Create triggers for automatic updated_at timestamps
 - [ ] Add data validation functions for ranges
 - [ ] Add foreign key constraints with cascading rules
+- [ ] Add genomics-specific indexes for performance
 
-#### Test Data Creation
+### Test Data Creation
 - [ ] Create cities.json with Romania locations
-- [ ] Add Bucharest coordinates and details
-- [ ] Add Cluj-Napoca coordinates and details
-- [ ] Add Timisoara coordinates and details
-- [ ] Add Iasi coordinates and details
-- [ ] Add Constanta coordinates and details
-- [ ] Add Brasov coordinates and details
-- [ ] Add Galati coordinates and details
-- [ ] Add Craiova coordinates and details
-- [ ] Add Ploiesti coordinates and details
-- [ ] Add Braila coordinates and details
+- [ ] Add Bucharest, Cluj-Napoca, Timisoara coordinates
+- [ ] Add Iasi, Constanta, Brasov coordinates
+- [ ] Add Galati, Craiova, Ploiesti, Braila coordinates
 - [ ] Create Moldova locations in cities.json
-- [ ] Add Chisinau coordinates and details
-- [ ] Add Tiraspol coordinates and details
-- [ ] Add Balti coordinates and details
-- [ ] Add Bender coordinates and details
-- [ ] Add Cahul coordinates and details
-- [ ] Add Soroca coordinates and details
-- [ ] Add Orhei coordinates and details
-- [ ] Add Ungheni coordinates and details
+- [ ] Add Chisinau, Tiraspol, Balti coordinates
+- [ ] Add Bender, Cahul, Soroca, Orhei, Ungheni coordinates
 - [ ] Add additional European cities for comparison
-- [ ] Add Kiev, Warsaw, Budapest locations
-- [ ] Add Sofia, Belgrade, Athens locations
-- [ ] Add Vienna and other regional capitals
+- [ ] Add Kiev, Warsaw, Budapest, Sofia, Belgrade locations
+- [ ] Add Athens, Vienna and other regional capitals
 - [ ] Validate all coordinates accuracy with external sources
 - [ ] Create database connection test script
 - [ ] Test Airflow postgres connection setup
 - [ ] Verify database connection pooling works
 
-#### Weather Data Pipeline Status
+---
+
+## 3. Weather Data Pipeline
+
+### Weather Data Ingestion Current Status
 - [x] Weather Producer implemented and collecting data
 - [x] Kafka integration functional with weather-data topic  
 - [x] Weather Consumer connected to Kafka successfully
@@ -146,9 +132,28 @@
     - No database writes despite successful Kafka message consumption
     - Next step: Debug Consumer database write logic
 
-### Days 5-7: Weather Collector Implementation
+### Kafka Producer & Consumer
+- [ ] Producer implementation
+    - [ ] https://medium.com/@raveena.r1604/live-streaming-of-weather-data-through-kafka-cb622546973d
+    - [ ] https://dev.to/milcah03/real-time-weather-data-pipeline-using-kafka-confluent-and-cassandra-4425
+    - [ ] https://github.com/Sakthe-Balan/WeatherAnalysis_Spark
+    - [ ] https://github.com/open-meteo/python-requests
+- [ ] Consumer implementation
+- [ ] Fix PostgreSQL write issue in Consumer
 
-#### Core API Client Module
+### Weather Collector Container
+- [ ] Create `weather-collector/Dockerfile` with Python 3.11 base
+- [ ] Create `weather-collector/requirements.txt` with dependencies
+- [ ] Add requests library for HTTP calls
+- [ ] Add pandas library for data processing
+- [ ] Add pyarrow library for Parquet files
+- [ ] Add minio library for object storage
+- [ ] Add python-dotenv for environment variables
+- [ ] Add schedule library for task scheduling
+- [ ] Create `weather-collector/src/` source structure
+- [ ] Test container build process
+
+### Core API Client Module
 - [ ] Create weather API client class
 - [ ] Implement HTTP client with timeout handling
 - [ ] Add API key authentication support
@@ -162,7 +167,7 @@
 - [ ] Add request logging and metrics
 - [ ] Create API health check functions
 
-#### Data Processing Pipeline
+### Data Processing Pipeline
 - [ ] Create weather data processor class
 - [ ] Implement data normalization for different units
 - [ ] Add temperature conversion functions
@@ -180,7 +185,7 @@
 - [ ] Create data enrichment functions
 - [ ] Add weather condition standardization
 
-#### Storage Management System
+### Storage Management System
 - [ ] Create storage manager class
 - [ ] Implement MinIO client connection
 - [ ] Add raw JSON data saving functionality
@@ -195,55 +200,197 @@
 - [ ] Create storage cleanup procedures
 - [ ] Add data retention policy implementation
 
-#### Configuration Management
-- [ ] Create configuration management class
-- [ ] Support multiple environments (dev, staging, prod)
-- [ ] Add environment variable loading
-- [ ] Implement configuration validation
-- [ ] Add secrets management integration
-- [ ] Create configuration documentation
-- [ ] Add runtime configuration reload capability
-- [ ] Implement configuration change detection
+---
 
-#### Logging and Monitoring
-- [ ] Setup structured JSON logging
-- [ ] Add performance metrics collection
-- [ ] Create custom business metrics
-- [ ] Implement health check endpoints
-- [ ] Add error tracking and alerting
-- [ ] Create log rotation policies
-- [ ] Add request tracing capabilities
-- [ ] Implement monitoring dashboards integration
+## 4. Bioinformatics Pipeline
 
-#### Testing Infrastructure
-- [ ] Create unit test suite with high coverage
-- [ ] Add integration tests with real API calls
-- [ ] Create mock tests for API failure scenarios
-- [ ] Add performance tests for concurrent requests
-- [ ] Create data quality validation tests
-- [ ] Add end-to-end pipeline tests
-- [ ] Implement load testing scenarios
-- [ ] Add regression test suite
+### Data Repository Exploration
+- [ ] Run ENA and NCBI SRA filter exploration scripts
+- [ ] Execute UPGRADE-specific data search across both repositories  
+- [ ] Analyze database comparison results and recommendations
+- [ ] Identify top 1000 European metagenomic samples matching UPGRADE criteria
+- [ ] Filter samples by:
+    - [ ] Geographic location: Europe (prioritize Romania/Moldova/Eastern Europe)
+    - [ ] Library strategy: METAGENOMIC or METATRANSCRIPTOMIC
+    - [ ] Sample type: Environmental (wastewater, surface, public spaces)
+    - [ ] Platform: Preferably Illumina or Nanopore
+    - [ ] Study quality: Complete metadata, published studies
+    - [ ] AMR relevance: Samples mentioning antimicrobial resistance
 
-#### Production Validation
-- [ ] Test weather collector container runs successfully
-- [ ] Verify all 25 cities processed without errors
-- [ ] Confirm data appears in MinIO with proper structure
-- [ ] Validate JSON files contain required fields
-- [ ] Verify Parquet files are readable
-- [ ] Test proper partitioning structure creation
-- [ ] Confirm no memory leaks during extended runs
-- [ ] Validate proper cleanup of temporary resources
-- [ ] Test graceful shutdown procedures
-- [ ] Verify error handling works correctly
+### Sample Metadata Analysis
+- [ ] Create comprehensive sample inventory spreadsheet
+- [ ] Extract and standardize metadata fields:
+    - [ ] Sample accession numbers (SRA/ENA)
+    - [ ] Geographic coordinates and location names
+    - [ ] Sample collection date and study period
+    - [ ] Environmental sample type and description
+    - [ ] Sequencing platform and library preparation method
+    - [ ] Study design and research objectives
+    - [ ] Available data files (FASTQ, assembled contigs)
+    - [ ] Data size and download requirements
+    - [ ] Associated publications and citations
+- [ ] Prioritize samples with AMR-relevant keywords
+- [ ] Identify samples from university/campus environments
+- [ ] Map samples to European regions and countries
+- [ ] Calculate total storage requirements for download
+
+### Data Selection Strategy
+- [ ] Develop balanced sampling strategy across:
+    - [ ] Geographic regions (25% Eastern Europe, 40% Western Europe, 35% Other)
+    - [ ] Sample types (40% wastewater, 30% surface, 20% public spaces, 10% other)
+    - [ ] Sequencing platforms (60% Illumina, 30% Nanopore, 10% other)
+    - [ ] Study years (prioritize 2020-2024 for methodology relevance)
+- [ ] Create priority rankings based on UPGRADE project relevance
+- [ ] Select initial 100 samples for pilot processing
+- [ ] Plan phased approach: 100 → 300 → 600 → 1000 samples
+- [ ] Estimate computational requirements and processing time
+
+### Automated Download System
+- [ ] Create SRA-tools and ENA download environment
+- [ ] Set up `sra-tools` with proper configuration for batch downloads
+- [ ] Configure `ena-dl` or similar tools for ENA data access
+- [ ] Implement parallel download capabilities with rate limiting
+- [ ] Add download progress tracking and resume functionality
+- [ ] Create download validation (checksum verification)
+- [ ] Implement retry logic for failed downloads
+- [ ] Add disk space monitoring during downloads
+- [ ] Create download logging and error reporting
+
+### Storage Management for Bioinformatics
+- [ ] Extend MinIO storage architecture for genomic data
+- [ ] Create bucket structure for raw FASTQ files
+- [ ] Add bucket for processed/intermediate files
+- [ ] Create bucket for final analysis results
+- [ ] Implement data lifecycle management (raw → processed → archived)
+- [ ] Add compression strategies for large genomic files
+- [ ] Create data integrity checking procedures
+- [ ] Implement backup strategies for critical analysis results
+
+### Sample Processing Queue
+- [ ] Create sample processing database tables
+- [ ] Implement processing queue management system
+- [ ] Add job scheduling with resource allocation
+- [ ] Create priority queuing for high-relevance samples
+- [ ] Add processing status tracking (queued → processing → completed → failed)
+- [ ] Implement processing time estimation and resource usage prediction
+
+### Nextflow Pipeline Development
+- [ ] Create `nextflow.config` with resource profiles
+- [ ] Design modular pipeline with separate processes for:
+    - [ ] Raw data quality control (FastQC, MultiQC)
+    - [ ] Read preprocessing (trimming, filtering)
+    - [ ] Metagenomic assembly (metaSPAdes, MEGAHIT, or Flye for long reads)
+    - [ ] Assembly quality assessment (QUAST, CheckM)
+    - [ ] Taxonomic classification (Kraken2, Sourmash, MetaPhlAn)
+    - [ ] Pathogen detection and identification
+    - [ ] Antimicrobial resistance gene (ARG) annotation
+    - [ ] Functional annotation (Prokka, eggNOG)
+    - [ ] Results aggregation and reporting
+
+### Quality Control and Preprocessing Module
+- [ ] Implement FastQC process for raw read quality assessment
+- [ ] Add MultiQC process for aggregated quality reports
+- [ ] Create adaptive trimming process (Trimmomatic/fastp)
+- [ ] Add contamination screening process (Kraken2 with RefSeq database)
+- [ ] Implement read filtering (minimum length, quality scores)
+- [ ] Add read deduplication if necessary
+- [ ] Create quality control checkpoint with pass/fail criteria
+- [ ] Add read count tracking through pipeline stages
+
+### Assembly and Polishing Module
+- [ ] Implement metaSPAdes process for Illumina short reads
+- [ ] Add Flye process for Nanopore long reads
+- [ ] Create hybrid assembly option for mixed read types
+- [ ] Implement assembly polishing (Pilon for short reads, Medaka for long reads)
+- [ ] Add assembly quality assessment (QUAST, assembly statistics)
+- [ ] Create contig filtering (minimum length, coverage thresholds)
+- [ ] Implement assembly validation checkpoints
+- [ ] Add assembly visualization and reporting
+
+### Taxonomic Classification Module
+- [ ] Implement Kraken2 with comprehensive database (Standard + custom)
+- [ ] Add Bracken for improved abundance estimation
+- [ ] Create MetaPhlAn process for species-level profiling
+- [ ] Implement Sourmash for k-mer-based classification
+- [ ] Add GTDB-Tk for bacterial genome classification
+- [ ] Create consensus taxonomy from multiple classifiers
+- [ ] Add taxonomic diversity calculations (Shannon, Simpson indices)
+- [ ] Implement taxonomic visualization outputs
+
+### Pathogen Detection Module
+- [ ] Create pathogen-specific database from NCBI Pathogen Detection
+- [ ] Implement BLAST-based pathogen screening
+- [ ] Add PathogenFinder integration for virulence factors
+- [ ] Create custom pathogen identification rules for ESCAPE pathogens:
+    - [ ] *Enterococcus faecium*
+    - [ ] *Staphylococcus aureus*
+    - [ ] *Klebsiella pneumoniae*
+    - [ ] *Acinetobacter baumannii*
+    - [ ] *Pseudomonas aeruginosa*
+    - [ ] *Enterobacter* species
+- [ ] Add WHO priority pathogen screening
+- [ ] Implement virulence gene detection (VFDB database)
+- [ ] Create pathogen abundance estimation
+- [ ] Add pathogen co-occurrence analysis
+
+### Antimicrobial Resistance (ARG) Detection Module
+- [ ] Implement ABRicate with CARD database for ARG detection
+- [ ] Add ResFinder integration for comprehensive resistance screening
+- [ ] Create DeepARG process for deep-learning-based ARG prediction
+- [ ] Add RGI (Resistance Gene Identifier) from CARD
+- [ ] Implement custom resistance gene database for ESCAPE pathogens
+- [ ] Add plasmid-mediated resistance detection
+- [ ] Create resistance gene clustering and classification
+- [ ] Add ARG-pathogen association analysis
+- [ ] Implement resistance phenotype prediction
+- [ ] Add horizontal gene transfer detection (ARG mobility elements)
+
+### Functional Annotation Module
+- [ ] Implement Prokka for rapid prokaryotic genome annotation
+- [ ] Add eggNOG-mapper for functional categorization
+- [ ] Create KEGG pathway analysis integration
+- [ ] Add COG functional classification
+- [ ] Implement InterProScan for protein domain annotation
+- [ ] Add GO term enrichment analysis
+- [ ] Create custom annotation for One Health relevant functions
+- [ ] Add metabolic pathway reconstruction
+- [ ] Implement comparative functional analysis between samples
+
+### Pipeline Testing and Optimization
+- [ ] Create test dataset with known composition (mock community)
+- [ ] Implement automated testing suite for pipeline components
+- [ ] Add benchmark datasets for performance comparison
+- [ ] Create validation metrics for each pipeline stage
+- [ ] Add regression testing for pipeline updates
+- [ ] Implement cross-validation with manual curation
+- [ ] Create performance benchmarking across different sample types
+- [ ] Add memory and CPU usage profiling
+
+### Resource Optimization
+- [ ] Profile memory usage for each pipeline process
+- [ ] Optimize CPU allocation for parallel processes
+- [ ] Implement dynamic resource allocation based on input size
+- [ ] Add disk I/O optimization strategies
+- [ ] Create resource usage prediction models
+- [ ] Implement pipeline checkpointing for long-running processes
+- [ ] Add resume functionality for interrupted runs
+- [ ] Optimize database query performance for large datasets
+
+### Error Handling and Recovery
+- [ ] Implement comprehensive error logging and reporting
+- [ ] Add automatic retry mechanisms for transient failures
+- [ ] Create error classification (data quality, resource, software)
+- [ ] Implement graceful degradation for partial failures
+- [ ] Add data quality checkpoints with pass/fail criteria
+- [ ] Create manual review queues for edge cases
+- [ ] Implement pipeline health monitoring
+- [ ] Add automated error notification system
 
 ---
 
-## Week 2: ETL Pipeline & Airflow Orchestration
+## 5. ETL Pipeline & Airflow Orchestration
 
-### Days 8-9: Airflow DAG Development
-
-#### Core DAG Implementation
+### Core DAG Implementation
 - [ ] Create weather collection DAG file
 - [ ] Configure DAG with proper metadata
 - [ ] Set owner and description fields
@@ -255,7 +402,7 @@
 - [ ] Add SLA monitoring configuration
 - [ ] Configure task timeout settings
 
-#### Docker Operator Configuration
+### Docker Operator Configuration
 - [ ] Create DockerOperator for weather collector
 - [ ] Configure Docker API version settings
 - [ ] Set auto-remove for container cleanup
@@ -269,7 +416,7 @@
 - [ ] Add container health checks
 - [ ] Implement graceful shutdown handling
 
-#### Task Dependencies and Parallelization
+### Task Dependencies and Parallelization
 - [ ] Create dynamic task generation based on city list
 - [ ] Add branch logic for different weather sources
 - [ ] Configure task parallelism settings
@@ -279,7 +426,7 @@
 - [ ] Add data validation checkpoints
 - [ ] Create cleanup and maintenance tasks
 
-#### Airflow Configuration Optimization
+### Airflow Configuration Optimization
 - [ ] Configure database connection pools
 - [ ] Set proper parallelism settings
 - [ ] Configure task concurrency limits
@@ -289,7 +436,7 @@
 - [ ] Configure log retention policies
 - [ ] Add custom XCom serialization
 
-#### DAG Testing and Validation
+### DAG Testing and Validation
 - [ ] Verify DAG appears in Airflow UI without parsing errors
 - [ ] Test manual DAG trigger functionality
 - [ ] Validate task execution order and dependencies
@@ -299,9 +446,7 @@
 - [ ] Validate retry mechanisms work correctly
 - [ ] Test SLA monitoring and alerting
 
-### Days 10-11: ETL Pipeline Development
-
-#### ETL Module Architecture
+### ETL Module Architecture
 - [ ] Create comprehensive ETL module structure
 - [ ] Design extract, transform, load separation
 - [ ] Implement MinIO client integration
@@ -311,7 +456,7 @@
 - [ ] Add Parquet file processing capabilities
 - [ ] Create bulk data loading strategies
 
-#### Data Extraction Layer
+### Data Extraction Layer
 - [ ] Implement MinIO data extraction with date filtering
 - [ ] Add support for multiple file formats
 - [ ] Create incremental data loading logic
@@ -321,7 +466,7 @@
 - [ ] Create extraction performance monitoring
 - [ ] Add error handling for missing files
 
-#### Data Transformation Pipeline
+### Data Transformation Pipeline
 - [ ] Create data cleaning and validation pipeline
 - [ ] Implement outlier detection algorithms
 - [ ] Add data deduplication logic
@@ -331,7 +476,7 @@
 - [ ] Create data normalization functions
 - [ ] Add data completeness checks
 
-#### Data Loading Operations
+### Data Loading Operations
 - [ ] Implement bulk PostgreSQL loading
 - [ ] Add upsert operations (INSERT ON CONFLICT UPDATE)
 - [ ] Create batch processing with optimal chunk sizes
@@ -341,7 +486,7 @@
 - [ ] Create loading performance monitoring
 - [ ] Add data consistency validation
 
-#### ETL Integration with Airflow
+### ETL Integration with Airflow
 - [ ] Create ETL task in weather collection DAG
 - [ ] Add proper task dependencies (collect -> process -> load)
 - [ ] Configure task resource requirements
@@ -351,9 +496,41 @@
 - [ ] Implement ETL logging and metrics
 - [ ] Add ETL completion notifications
 
-### Days 12-14: Monitoring, Logging & Data Quality
+### Results Database Integration
+- [ ] Create ETL processes for Nextflow pipeline outputs
+- [ ] Implement JSON/TSV parser for pipeline results
+- [ ] Add data validation for genomic data types
+- [ ] Create batch loading procedures for large result sets
+- [ ] Implement data versioning for pipeline result updates
+- [ ] Add data lineage tracking for reproducibility
+- [ ] Create data quality scoring for analysis results
+- [ ] Add automated data integrity checks
 
-#### Advanced Logging Framework
+### Analysis Results API
+- [ ] Create REST API endpoints for accessing genomic analysis results
+- [ ] Add authentication and authorization for sensitive data
+- [ ] Implement filtering and search capabilities
+- [ ] Create data export functionality (CSV, JSON, XML)
+- [ ] Add pagination for large result sets
+- [ ] Implement caching strategies for frequently accessed data
+- [ ] Create API documentation and testing suite
+- [ ] Add rate limiting and usage monitoring
+
+### Cross-Domain Data Integration
+- [ ] Create views joining weather and genomic data by location/time
+- [ ] Add geographic analysis combining environmental and microbial data
+- [ ] Create temporal correlation analysis between weather and AMR
+- [ ] Implement seasonal pattern detection across data types
+- [ ] Add environmental factor correlation with pathogen abundance
+- [ ] Create predictive models using combined datasets
+- [ ] Add statistical analysis functions for cross-domain insights
+- [ ] Create data aggregation for multi-scale analysis
+
+---
+
+## 6. Monitoring, Logging & Data Quality
+
+### Advanced Logging Framework
 - [ ] Implement structured logging with JSON format
 - [ ] Add correlation IDs for request tracing
 - [ ] Create log aggregation configuration
@@ -363,7 +540,7 @@
 - [ ] Add log retention and rotation policies
 - [ ] Create log monitoring dashboards
 
-#### Metrics and Alerting System
+### Metrics and Alerting System
 - [ ] Create custom metrics for business KPIs
 - [ ] Add cities processed successfully counter
 - [ ] Implement data quality score histogram
@@ -373,7 +550,7 @@
 - [ ] Implement system resource usage metrics
 - [ ] Create capacity planning metrics
 
-#### Alerting Configuration
+### Alerting Configuration
 - [ ] Set up alerting rules for critical failures
 - [ ] Create SLA monitoring for data freshness
 - [ ] Add anomaly detection alerting
@@ -383,7 +560,7 @@
 - [ ] Create incident response procedures
 - [ ] Add alert acknowledgment workflows
 
-#### Data Quality Monitoring
+### Data Quality Monitoring
 - [ ] Create automated data quality checks
 - [ ] Implement success rate tracking by city and time
 - [ ] Add data completeness metrics
@@ -393,7 +570,7 @@
 - [ ] Create data quality scoring algorithms
 - [ ] Add data lineage visualization
 
-#### Error Handling and Recovery
+### Error Handling and Recovery
 - [ ] Implement dead letter queue for failed messages
 - [ ] Add automatic retry mechanisms with backoff
 - [ ] Create manual intervention workflows
@@ -403,7 +580,7 @@
 - [ ] Add system health monitoring
 - [ ] Create disaster recovery procedures
 
-#### Operational Excellence
+### Operational Excellence
 - [ ] Create monitoring dashboard for system health
 - [ ] Add performance benchmarking
 - [ ] Implement capacity planning monitoring
@@ -413,13 +590,21 @@
 - [ ] Add operational metrics collection
 - [ ] Create system documentation
 
+### Pipeline Performance Monitoring
+- [ ] Create processing time tracking for each sample
+- [ ] Implement resource utilization monitoring
+- [ ] Add quality metrics tracking across samples
+- [ ] Create pipeline throughput optimization
+- [ ] Add bottleneck identification and resolution
+- [ ] Implement capacity planning for large-scale processing
+- [ ] Create performance dashboards and reporting
+- [ ] Add cost optimization tracking
+
 ---
 
-## Week 3: Metabase Analytics & Visualization
+## 7. Metabase Analytics & Visualization
 
-### Days 15-16: Metabase Setup & Configuration
-
-#### Metabase Installation
+### Metabase Installation
 - [ ] Add Metabase service to docker-compose.yml
 - [ ] Configure Metabase with PostgreSQL backend
 - [ ] Set up persistent data volumes
@@ -429,7 +614,7 @@
 - [ ] Add health checks for Metabase service
 - [ ] Set restart policy for automatic recovery
 
-#### Database Integration
+### Database Integration
 - [ ] Create dedicated Metabase database
 - [ ] Create read-only database user for analytics
 - [ ] Configure database connection in Metabase
@@ -439,7 +624,7 @@
 - [ ] Add database query optimization
 - [ ] Create sample queries for validation
 
-#### Security and Access Control
+### Security and Access Control
 - [ ] Configure Metabase admin account with strong password
 - [ ] Set up user roles and permissions
 - [ ] Configure access controls for data sources
@@ -449,7 +634,7 @@
 - [ ] Add session timeout configuration
 - [ ] Create user management procedures
 
-#### Initial Configuration
+### Initial Configuration
 - [ ] Complete Metabase initial setup wizard
 - [ ] Configure organization settings
 - [ ] Set up email configuration for notifications
@@ -459,9 +644,7 @@
 - [ ] Configure caching settings
 - [ ] Create initial user accounts
 
-### Days 17-19: Data Model & Visualization Development
-
-#### Metabase Data Model Setup
+### Metabase Data Model Setup
 - [ ] Create semantic layer with business-friendly names
 - [ ] Set up table relationships and joins
 - [ ] Configure field types and formatting
@@ -471,7 +654,7 @@
 - [ ] Configure field visibility and permissions
 - [ ] Add data freshness indicators
 
-#### Advanced SQL Queries for Analytics
+### Advanced SQL Queries for Analytics
 - [ ] Create temperature trends query with statistical analysis
 - [ ] Add weather comparison queries between regions
 - [ ] Create seasonal analysis queries
@@ -481,7 +664,7 @@
 - [ ] Create historical comparison queries
 - [ ] Add forecasting and trend prediction queries
 
-#### Geographic Visualizations
+### Weather Data Visualizations
 - [ ] Create real-time temperature map visualization
 - [ ] Add color-coded temperature zones
 - [ ] Implement interactive tooltips with detailed information
@@ -493,7 +676,7 @@
 - [ ] Implement map animation for time series data
 - [ ] Add geographic clustering for performance
 
-#### Time Series Analysis Charts
+### Time Series Analysis Charts
 - [ ] Create multi-series temperature trend chart
 - [ ] Add separate lines for Romania and Moldova
 - [ ] Include average, minimum, and maximum temperature bands
@@ -505,7 +688,7 @@
 - [ ] Add forecast vs actual comparison charts
 - [ ] Implement anomaly detection visualizations
 
-#### Statistical Analysis Dashboards
+### Statistical Analysis Dashboards
 - [ ] Create statistical summary cards for current conditions
 - [ ] Add historical averages and extreme value indicators
 - [ ] Create data quality metrics display
@@ -515,9 +698,47 @@
 - [ ] Implement trend analysis with regression lines
 - [ ] Create comparative analysis charts between cities
 
-### Days 20-21: Dashboard Creation & User Experience
+### Genomics Data Model in Metabase
+- [ ] Create semantic layer for bioinformatics results
+- [ ] Add business-friendly names for genomic concepts
+- [ ] Create calculated fields for resistance prevalence
+- [ ] Add pathogen risk scoring metrics
+- [ ] Create geographic aggregations for pathogen distribution
+- [ ] Add temporal analysis fields for trend detection
+- [ ] Create sample comparison metrics
+- [ ] Add data quality indicators for genomic analyses
 
-#### Main Operational Dashboard
+### Pathogen Surveillance Dashboard
+- [ ] Create real-time pathogen detection map
+- [ ] Add color-coded risk levels by geographic region
+- [ ] Implement pathogen abundance heatmaps
+- [ ] Create time series charts for pathogen trends
+- [ ] Add ESCAPE pathogen monitoring panel
+- [ ] Create pathogen co-occurrence network visualizations
+- [ ] Add seasonal pathogen pattern analysis
+- [ ] Implement pathogen outbreak detection alerts
+
+### AMR Monitoring Dashboard
+- [ ] Create resistance gene prevalence maps
+- [ ] Add AMR trend analysis over time and geography
+- [ ] Create resistance gene family classification charts
+- [ ] Add WHO priority pathogen resistance monitoring
+- [ ] Create resistance phenotype prediction dashboard
+- [ ] Add horizontal gene transfer visualization
+- [ ] Create resistance burden scoring by location
+- [ ] Add comparative resistance analysis between regions
+
+### Environmental-Genomic Integration Dashboard
+- [ ] Create correlation analysis between weather and AMR
+- [ ] Add seasonal pathogen-climate relationship charts
+- [ ] Create environmental factor impact on microbial diversity
+- [ ] Add temperature-resistance correlation analysis
+- [ ] Create precipitation impact on pathogen abundance
+- [ ] Add urban heat island effect on microbial communities
+- [ ] Create air quality-pathogen correlation analysis
+- [ ] Add comprehensive One Health monitoring dashboard
+
+### Main Operational Dashboard
 - [ ] Create executive-level operational dashboard
 - [ ] Add real-time weather map in top section
 - [ ] Create key metrics cards for temperature and precipitation
@@ -530,7 +751,7 @@
 - [ ] Add drill-down capabilities to detailed views
 - [ ] Implement export functionality for reports
 
-#### Specialized Analytics Dashboards
+### Specialized Analytics Dashboards
 - [ ] Create dedicated Data Quality Dashboard
 - [ ] Add success rate trends visualization
 - [ ] Include API performance metrics
@@ -546,7 +767,7 @@
 - [ ] Include resource utilization charts
 - [ ] Add performance trend analysis
 
-#### Advanced Filtering System
+### Advanced Filtering System
 - [ ] Implement cascading filter system
 - [ ] Add country to city selection filters
 - [ ] Create date range filters with quick presets
@@ -560,7 +781,7 @@
 - [ ] Add filter state persistence across sessions
 - [ ] Implement URL-based filter sharing
 
-#### Interactive Dashboard Features
+### Interactive Dashboard Features
 - [ ] Add click-through navigation between dashboards
 - [ ] Implement custom tooltip functionality
 - [ ] Create contextual help and documentation
@@ -574,23 +795,65 @@
 
 ---
 
-## Week 4: Testing, Optimization & Production Readiness
+## 8. Advanced Analytics & Machine Learning
 
-### Days 22-24: System Testing & Performance Validation
+### Statistical Analysis Engine
+- [ ] Implement time series analysis for pathogen trends
+- [ ] Add seasonal decomposition for environmental-microbial patterns
+- [ ] Create correlation analysis between environmental and genomic variables
+- [ ] Add multivariate statistical analysis capabilities
+- [ ] Implement machine learning models for pathogen prediction
+- [ ] Create anomaly detection algorithms for outbreak prediction
+- [ ] Add clustering analysis for sample similarity
+- [ ] Create principal component analysis for data dimensionality reduction
 
-#### Load Testing Infrastructure
+### Predictive Modeling Framework
+- [ ] Develop pathogen abundance prediction models
+- [ ] Create AMR emergence prediction algorithms
+- [ ] Add seasonal pathogen outbreak forecasting
+- [ ] Implement early warning systems for public health risks
+- [ ] Create environmental factor impact models
+- [ ] Add machine learning pipelines for pattern recognition
+- [ ] Create model validation and performance monitoring
+- [ ] Add automated model retraining procedures
+
+### Comparative Analysis Tools
+- [ ] Create sample-to-sample comparison tools
+- [ ] Add geographic comparison analysis
+- [ ] Create temporal comparison dashboards
+- [ ] Add treatment vs control group analysis tools
+- [ ] Create before/after intervention analysis
+- [ ] Add multi-site comparison capabilities
+- [ ] Create benchmark comparison with reference datasets
+- [ ] Add statistical significance testing for comparisons
+
+### Data Export and Reporting
+- [ ] Create automated report generation system
+- [ ] Add customizable report templates
+- [ ] Create executive summary reports for stakeholders
+- [ ] Add detailed technical reports for researchers
+- [ ] Create regulatory compliance reports
+- [ ] Add publication-ready figure generation
+- [ ] Create data sharing and collaboration tools
+- [ ] Add automated report distribution system
+
+---
+
+## 9. System Testing & Performance Validation
+
+### Load Testing Infrastructure
 - [ ] Set up automated load testing framework
 - [ ] Configure 100 concurrent weather API request simulation
 - [ ] Test 1000+ database operations per minute
 - [ ] Simulate 50+ concurrent Metabase users
-- [ ] Run continuous 24/7 operation for 7 days
+- [ ] Run continuous 24/7 operation for extended periods
 - [ ] Monitor CPU utilization across all services
 - [ ] Track memory consumption and detect leaks
 - [ ] Monitor disk I/O and storage growth patterns
 - [ ] Measure network throughput and latency
 - [ ] Create load testing reports and analysis
 
-#### Database Performance Testing
+### Database Performance Testing
 - [ ] Test query execution time under heavy load
 - [ ] Monitor connection pool utilization
 - [ ] Analyze database lock contention
@@ -600,7 +863,7 @@
 - [ ] Test concurrent read/write operations
 - [ ] Validate query optimization effectiveness
 
-#### Scalability Testing
+### Scalability Testing
 - [ ] Test system with 100+ cities (5x current scale)
 - [ ] Validate hourly data collection (4x frequency increase)
 - [ ] Test concurrent ETL pipeline execution
@@ -610,7 +873,7 @@
 - [ ] Test resource allocation and limits
 - [ ] Create scalability improvement recommendations
 
-#### Resilience Testing
+### Resilience Testing
 - [ ] Test weather API unavailability scenarios
 - [ ] Simulate MinIO storage service failures
 - [ ] Test PostgreSQL database connection loss
@@ -622,7 +885,7 @@
 - [ ] Test graceful degradation capabilities
 - [ ] Validate data consistency after recovery
 
-#### Data Integrity Testing
+### Data Integrity Testing
 - [ ] Validate PostgreSQL backup and restore procedures
 - [ ] Test MinIO data backup and restore
 - [ ] Validate configuration backup procedures
@@ -632,9 +895,65 @@
 - [ ] Validate cross-region backup strategies
 - [ ] Test disaster recovery procedures
 
-### Days 25-28: Documentation & Production Deployment
+### Bioinformatics Pipeline Testing
+- [ ] Test pipeline with mock community datasets
+- [ ] Validate pathogen detection accuracy
+- [ ] Test AMR gene detection sensitivity and specificity
+- [ ] Benchmark assembly quality across sample types
+- [ ] Test pipeline scalability with 1000+ samples
+- [ ] Validate resource usage optimization
+- [ ] Test pipeline recovery from failures
+- [ ] Validate result reproducibility
 
-#### Technical Documentation
+---
+
+## 10. System Integration & Optimization
+
+### End-to-End Pipeline Integration
+- [ ] Create unified orchestration for weather + genomics pipelines
+- [ ] Add cross-pipeline dependency management
+- [ ] Create integrated data quality monitoring
+- [ ] Add unified logging and monitoring across all systems
+- [ ] Create integrated backup and disaster recovery
+- [ ] Add cross-system performance optimization
+- [ ] Create unified user management and access control
+- [ ] Add integrated cost monitoring and optimization
+
+### Performance Optimization
+- [ ] Optimize database queries for large genomic datasets
+- [ ] Add database indexing strategies for genomic data
+- [ ] Implement caching strategies for frequently accessed analyses
+- [ ] Create query optimization for complex joins
+- [ ] Add data partitioning strategies for time-series genomic data
+- [ ] Optimize ETL processes for high-throughput genomic data
+- [ ] Create parallel processing optimization
+- [ ] Add memory optimization for large-scale analyses
+
+### Scalability Enhancements
+- [ ] Implement horizontal scaling for Nextflow pipeline processing
+- [ ] Add auto-scaling capabilities for compute resources
+- [ ] Create distributed storage strategies for genomic data
+- [ ] Add load balancing for API endpoints
+- [ ] Implement database sharding for large datasets
+- [ ] Create microservices architecture for modular scaling
+- [ ] Add container orchestration (Kubernetes) planning
+- [ ] Create cost-effective scaling strategies
+
+### Configuration Management
+- [ ] Create configuration management class
+- [ ] Support multiple environments (dev, staging, prod)
+- [ ] Add environment variable loading
+- [ ] Implement configuration validation
+- [ ] Add secrets management integration
+- [ ] Create configuration documentation
+- [ ] Add runtime configuration reload capability
+- [ ] Implement configuration change detection
+
+---
+
+## 11. Documentation & Production Deployment
+
+### Technical Documentation
 - [ ] Update comprehensive README.md with installation instructions
 - [ ] Create architecture overview with component diagrams
 - [ ] Document data flow and processing pipeline
@@ -648,7 +967,19 @@
 - [ ] Document backup and recovery procedures
 - [ ] Create monitoring and alerting runbook
 
-#### Operational Documentation
+### Bioinformatics Documentation
+- [ ] Document Nextflow pipeline architecture and modules
+- [ ] Create sample selection and filtering criteria documentation
+- [ ] Document pathogen detection methodology
+- [ ] Create AMR analysis workflow documentation
+- [ ] Document taxonomic classification approaches
+- [ ] Create quality control standards and thresholds
+- [ ] Document computational resource requirements
+- [ ] Create pipeline troubleshooting guide
+- [ ] Document result interpretation guidelines
+- [ ] Create data submission and sharing protocols
+
+### Operational Documentation
 - [ ] Create deployment guide for different environments
 - [ ] Document CI/CD pipeline setup
 - [ ] Create environment promotion procedures
@@ -660,7 +991,7 @@
 - [ ] Create change management procedures
 - [ ] Add compliance and audit documentation
 
-#### Production Deployment Preparation
+### Production Deployment Preparation
 - [ ] Create production environment configuration
 - [ ] Set up production Docker compose configuration
 - [ ] Configure production environment variables
@@ -672,7 +1003,7 @@
 - [ ] Configure production data retention policies
 - [ ] Set up production disaster recovery
 
-#### Knowledge Transfer and Training
+### Knowledge Transfer and Training
 - [ ] Create system architecture presentation
 - [ ] Document key technical decisions and rationale
 - [ ] Create operational procedures training materials
@@ -684,7 +1015,7 @@
 - [ ] Create video tutorials for common tasks
 - [ ] Document lessons learned and best practices
 
-#### Final Validation and Handover
+### Final Validation and Handover
 - [ ] Perform final system health check
 - [ ] Validate all monitoring and alerting works
 - [ ] Confirm backup and recovery procedures
@@ -698,29 +1029,81 @@
 
 ---
 
-## Success Criteria for MVP (Month 1)
+## Success Criteria & Final Deliverables
 
-### Technical Criteria
-- [ ] All 6 services start with single docker-compose command
-- [ ] System collects data from 25+ cities every 6 hours automatically
-- [ ] Data properly stored in MinIO (JSON/Parquet) and PostgreSQL
-- [ ] Airflow DAG executes on schedule without manual intervention
-- [ ] Metabase displays interactive maps and time series charts
-- [ ] System maintains 95% uptime during testing period
+### Technical Integration Criteria
+- [ ] Weather data pipeline processes 25+ cities every 6 hours
+- [ ] Genomics pipeline successfully processes 1000 European samples
+- [ ] Integrated database stores both environmental and genomic data
+- [ ] Cross-domain analytics available through unified Metabase interface
+- [ ] System maintains >95% uptime for both data collection and processing
+- [ ] All pipelines recoverable from failures with <1 hour manual intervention
 
-### Business Criteria
-- [ ] Dashboard ready for stakeholder demonstrations
-- [ ] Architecture supports future genomic data integration
-- [ ] System processes and stores historical data for analysis
-- [ ] Data quality monitoring shows >90% successful collection rate
-- [ ] Documentation enables independent system maintenance
-- [ ] System scalable to support 100+ locations and hourly collection
+### Scientific and Research Criteria
+- [ ] Pathogen detection from 1000 samples with quality metrics
+- [ ] AMR gene catalog from European environmental samples
+- [ ] Environmental-microbial correlation analysis completed
+- [ ] Seasonal pathogen pattern analysis available
+- [ ] Geographic AMR distribution mapping completed
+- [ ] ESCAPE pathogen surveillance operational
+- [ ] One Health analytics dashboard functional
+
+### Data and Analytics Criteria
+- [ ] 90+ days of weather data collected and stored
+- [ ] 1000 samples processed through genomics pipeline with >80% success rate
+- [ ] Interactive dashboards showing real-time environmental and genomic data
+- [ ] Predictive models for pathogen-environment relationships operational
+- [ ] Data export capabilities for research collaboration
+- [ ] Automated reporting system generating weekly surveillance reports
+
+### Production and Operational Criteria
+- [ ] Full system deployable with single command (docker-compose)
+- [ ] Comprehensive monitoring showing system health and data quality
+- [ ] Automated backup and recovery procedures tested and documented
+- [ ] User access management and security controls implemented
+- [ ] Documentation enables independent system operation
+- [ ] Cost optimization strategies implemented and monitored
+
+### Research Impact Criteria
+- [ ] System generates novel insights for UPGRADE project objectives
+- [ ] Data suitable for peer-reviewed publication preparation
+- [ ] Platform demonstrates One Health approach effectiveness
+- [ ] Framework extensible for additional geographic regions
+- [ ] Methodology transferable to other research groups
+- [ ] Collaboration opportunities identified through data sharing
 
 ### Final Deliverables
-- [ ] Fully functional weather data collection system
-- [ ] Interactive Metabase dashboards with real-time data
-- [ ] Comprehensive technical and operational documentation
-- [ ] Production-ready deployment configuration
-- [ ] Live demonstration of system capabilities
-- [ ] 30 days of historical weather data collected and stored
+- [ ] Fully integrated weather-genomics surveillance platform
+- [ ] 1000 European environmental samples analyzed for pathogens and AMR
+- [ ] Interactive analytics platform with environmental-genomic integration
+- [ ] Comprehensive technical documentation and user guides
+- [ ] Research datasets ready for scientific publication
+- [ ] Live demonstration of integrated surveillance capabilities
+- [ ] 3 months of continuous operational data collection
+- [ ] Framework for expanding to additional locations and samples
 
+---
+
+## Configuration Files and Testing Infrastructure
+
+### Testing Infrastructure
+- [ ] Create unit test suite with high coverage
+- [ ] Add integration tests with real API calls
+- [ ] Create mock tests for API failure scenarios
+- [ ] Add performance tests for concurrent requests
+- [ ] Create data quality validation tests
+- [ ] Add end-to-end pipeline tests
+- [ ] Implement load testing scenarios
+- [ ] Add regression test suite
+
+### Production Validation
+- [ ] Test weather collector container runs successfully
+- [ ] Verify all cities processed without errors
+- [ ] Confirm data appears in MinIO with proper structure
+- [ ] Validate JSON files contain required fields
+- [ ] Verify Parquet files are readable
+- [ ] Test proper partitioning structure creation
+- [ ] Confirm no memory leaks during extended runs
+- [ ] Validate proper cleanup of temporary resources
+- [ ] Test graceful shutdown procedures
+- [ ] Verify error handling works correctly

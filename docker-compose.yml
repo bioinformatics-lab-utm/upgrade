@@ -278,6 +278,104 @@ services:
       - upgrade_network
     restart: unless-stopped
 
+  streamlit-app:
+    build:
+      context: ./streamlit
+      dockerfile: Dockerfile
+    container_name: upgrade_streamlit
+    ports:
+      - "0.0.0.0:8501:8501"
+    volumes:
+      - ./data:/data
+      - ./results:/results
+    environment:
+      - POSTGRES_HOST=postgres  # Важно: имя сервиса из docker-compose
+      - POSTGRES_DB=${POSTGRES_DB}           # Используйте переменные из .env
+      - POSTGRES_USER=${POSTGRES_USER}       # Вместо жестко заданных значений
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+      - REDIS_HOST=redis
+    networks:
+      - upgrade_network  # Та же сеть что и остальные сервисы
+    depends_on:
+      - postgres
+      - redis
+    restart: unless-stopped
+  
+  # nextflow-worker:
+  #   image: nextflow/nextflow:23.10.0
+  #   container_name: upgrade_nextflow_worker
+  #   restart: unless-stopped
+  #   volumes:
+  #     - ./nextflow:/pipeline:ro
+  #     - ./data:/data
+  #     - ./results:/results
+  #     - /var/run/docker.sock:/var/run/docker.sock
+  #     - nextflow_work:/work
+  #   environment:
+  #     - NXF_WORK=/work
+  #     - NXF_ASSETS=/pipeline/assets
+  #     - NXF_TEMP=/tmp
+  #     - NXF_HOME=/pipeline
+
+  #     # Database connection
+  #     - POSTGRES_HOST=postgres
+  #     - POSTGRES_DB=upgrade_db
+  #     - POSTGRES_USER=upgrade_user
+  #     - POSTGRES_PASSWORD=upgrade_password
+      
+  #     # MinIO connection
+  #     - MINIO_ENDPOINT=http://minio:9000
+  #     - MINIO_ACCESS_KEY=minioadmin
+  #     - MINIO_SECRET_KEY=minioadmin
+      
+  #     # Redis для job queue
+  #     - REDIS_HOST=redis
+  #     - REDIS_PORT=6379
+      
+  #     # Resource limits
+  #     - NXF_OPTS='-Xms1g -Xmx4g'
+    
+  #   working_dir: /pipeline
+  #   networks:
+  #     - upgrade_network
+  #   depends_on:
+  #     postgres:
+  #       condition: service_healthy
+  #     redis:
+  #       condition: service_started
+  #     minio:
+  #       condition: service_healthy
+  #   # Команда для job worker
+  #   command: python3 bin/nextflow_job_worker.py
+  #   healthcheck:
+  #     test: ["CMD", "python3", "bin/health_check.py"]
+  #     interval: 30s
+  #     timeout: 10s
+  #     retries: 3
+
+  # # Nextflow Job Scheduler (опционально - для автоматического scheduling)
+  # nextflow-scheduler:
+    # image: nextflow/nextflow:23.10.0
+    # container_name: nextflow-scheduler
+    # restart: unless-stopped
+    # profiles: ["scheduler"]  # Запускается только при необходимости
+    # volumes:
+    #   - ./nextflow-pipeline:/pipeline:ro
+    #   - ./data:/data:ro
+    # environment:
+    #   - POSTGRES_HOST=postgres
+    #   - POSTGRES_DB=upgrade_db  
+    #   - POSTGRES_USER=upgrade_user
+    #   - POSTGRES_PASSWORD=upgrade_password
+    #   - REDIS_HOST=redis
+    # working_dir: /pipeline
+    # networks:
+    #   - upgrade-network
+    # depends_on:
+    #   - postgres
+    #   - redis
+    # command: python3 bin/schedule_genomics_jobs.py
+
 networks:
   upgrade_network:
     driver: bridge

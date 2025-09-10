@@ -1,0 +1,85 @@
+{
+  "library_strategies": {
+    "WGS": 6942615,
+    "WXS": 486302,
+    "RNA-Seq": 5443284,
+    "miRNA-Seq": 149848,
+    "ChIP-Seq": 335758,
+    "ATAC-seq": 173784,
+    "Bisulfite-Seq": 0,
+    "AMPLICON": 14530681,
+    "METAGENOMIC": 0,
+    "METATRANSCRIPTOMIC": 0,
+    "Targeted-Capture": 452372,
+    "Hi-C": 60500,
+    "CUT&RUN": 0
+  },
+  "platforms": {
+    "ILLUMINA": 29559566,
+    "OXFORD_NANOPORE": 0,
+    "PACBIO_SMRT": 761944,
+    "ION_TORRENT": 464240,
+    "HELICOS": 4693,
+    "ABI_SOLID": 39855,
+    "COMPLETE_GENOMICS": 6673,
+    "454": 0
+  },
+  "library_sources": {
+    "GENOMIC": 12882845,
+    "TRANSCRIPTOMIC": 5136333,
+    "METAGENOMIC": 6670064,
+    "METATRANSCRIPTOMIC": 173124,
+    "SYNTHETIC": 130004,
+    "VIRAL_RNA": 6764977,
+    "OTHER": 321836
+  },
+  "metagenomic_combinations": {
+    "All metagenomic": 6670064,
+    "Metagenomic + Illumina": 6091728,
+    "Metagenomic + Nanopore": 62005,
+    "Metagenomic strategy": 0,
+    "Metagenomic strategy + Illumina": 0,
+    "Metagenomic strategy + Nanopore": 0
+  },
+  "geographic_filters": {
+    "Romania samples": 11298,
+    "Moldova samples": 5351,
+    "Eastern Europe": 23725,
+    "University samples": 0,
+    "Campus samples": 46266,
+    "Urban samples": 353504
+  },
+  "amr_data": {
+    "Antimicrobial resistance": 42151,
+    "Antibiotic resistance": 53799,
+    "AMR": 131930,
+    "Resistance genes": 0,
+    "ARG": 4870,
+    "Beta-lactamase": 4205,
+    "ESBL": 10191,
+    "Carbapenemase": 9914,
+    "ESCAPE pathogens": 7356,
+    "Acinetobacter": 49086,
+    "Pseudomonas": 95150
+  },
+  "environmental_samples": {
+    "Wastewater": 367599,
+    "Sewage": 48859,
+    "Campus environment": 0,
+    "University environment": 0,
+    "Public spaces": 14,
+    "Environmental surveillance": 1302,
+    "Surface samples": 3508,
+    "Door handles": 1031,
+    "Restaurant surfaces": 0,
+    "Laboratory surfaces": 0
+  },
+  "combined_upgrade_queries": {
+    "Metagenomic + AMR": 12042,
+    "Environmental + AMR": 0,
+    "Nanopore + Metagenomic": 62005,
+    "University + Metagenomic": 980386,
+    "Surveillance + Pathogen": 591603,
+    "Campus + Microbial": 4586
+  }
+}

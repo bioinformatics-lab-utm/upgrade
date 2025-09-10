@@ -1,0 +1,47 @@
+{
+  "library_strategies": {
+    "WGS": 1,
+    "AMPLICON": 1,
+    "RNA-Seq": 1,
+    "ChIP-Seq": 1,
+    "ATAC-seq": 1,
+    "Bisulfite-Seq": 1,
+    "CUT&RUN": "1000+",
+    "Hi-C": 1,
+    "METAGENOMIC": "1000+",
+    "METATRANSCRIPTOMIC": "1000+"
+  },
+  "platforms": {
+    "ILLUMINA": 0,
+    "OXFORD_NANOPORE": 0,
+    "PACBIO_SMRT": 0,
+    "ION_TORRENT": 0,
+    "HELICOS": 0,
+    "ABI_SOLID": 0,
+    "COMPLETE_GENOMICS": 0
+  },
+  "library_sources": {
+    "GENOMIC": 1,
+    "TRANSCRIPTOMIC": 1,
+    "METAGENOMIC": 1,
+    "METATRANSCRIPTOMIC": 1,
+    "SYNTHETIC": 1,
+    "VIRAL_RNA": "1000+",
+    "OTHER": 1
+  },
+  "metagenomic_combinations": {
+    "All metagenomic": "1000+",
+    "Metagenomic + Illumina": 0,
+    "Metagenomic + Nanopore": 0,
+    "Metagenomic source": 1,
+    "Metagenomic source + Illumina": 0,
+    "Metagenomic source + Nanopore": 0
+  },
+  "geographic_filters": {
+    "Romania exact match": 0,
+    "Moldova exact match": 0,
+    "Romania by country field": 1,
+    "Moldova by country field": 1
+  },
+  "available_fields": []
+}
