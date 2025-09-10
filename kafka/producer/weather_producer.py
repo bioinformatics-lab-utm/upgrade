@@ -11,7 +11,6 @@ import aiohttp
 import redis
 import psycopg2
 from kafka import KafkaProducer
-import schedule
 
 logging.basicConfig(level=getattr(logging, os.getenv('LOG_LEVEL', 'INFO')))
 logger = logging.getLogger(__name__)
@@ -24,17 +23,9 @@ class WeatherProducer:
         self.postgres_url = os.getenv('POSTGRES_URL', 'postgresql://upgrade:upgrade123@postgres:5432/upgrade_db')
         self.redis_password = os.getenv('REDIS_PASSWORD', '')
         self.collection_interval = int(os.getenv('COLLECTION_INTERVAL_MINUTES', '30'))
-        self.max_cities_per_batch = int(os.getenv('MAX_CITIES_PER_BATCH', '50'))  # Ограничение для API
         
         # Kafka топики
         self.topic = 'weather-data'
-        
-        # Fallback города (если база недоступна)
-        self.fallback_cities = [
-            {'id': 'suceava', 'name': 'Suceava', 'lat': 47.6635, 'lon': 26.2535, 'county': 'Suceava', 'country': 'Romania'},
-            {'id': 'bucharest', 'name': 'Bucharest', 'lat': 44.4268, 'lon': 26.1025, 'county': 'Bucharest', 'country': 'Romania'},
-            {'id': 'chisinau', 'name': 'Chisinau', 'lat': 47.0105, 'lon': 28.8638, 'county': 'Chisinau', 'country': 'Moldova'},
-        ]
         
         # Инициализация компонентов
         self.cities = []
@@ -43,12 +34,12 @@ class WeatherProducer:
         self.session = None
 
     async def load_cities_from_database(self) -> List[Dict]:
-        """Загрузить города из базы данных"""
+        """Загрузить все города из базы данных"""
         try:
             conn = psycopg2.connect(self.postgres_url)
             cur = conn.cursor()
             
-            # Исправленный запрос без колонки county
+            # Загружаем ВСЕ активные города без ограничений
             cur.execute("""
                 SELECT 
                     location_name, 
@@ -65,8 +56,7 @@ class WeatherProducer:
                 ORDER BY 
                     CASE WHEN country = 'Romania' THEN 1 ELSE 2 END,
                     location_name
-                LIMIT %s
-            """, (self.max_cities_per_batch,))
+            """)
             
             cities = []
             for row in cur.fetchall():
@@ -88,8 +78,7 @@ class WeatherProducer:
             
         except Exception as e:
             logger.error(f"Failed to load cities from database: {e}")
-            logger.warning("Using fallback cities list")
-            return self.fallback_cities
+            raise
 
     async def initialize(self):
         """Инициализация producer"""
@@ -99,8 +88,7 @@ class WeatherProducer:
             self.cities = await self.load_cities_from_database()
             
             if not self.cities:
-                logger.warning("No cities loaded, using fallback list")
-                self.cities = self.fallback_cities
+                raise Exception("No cities loaded from database")
             
             # Kafka Producer
             self.producer = KafkaProducer(
@@ -124,7 +112,7 @@ class WeatherProducer:
                 logger.info("Redis client initialized")
             
             # HTTP session с увеличенным timeout для большого количества городов
-            timeout = aiohttp.ClientTimeout(total=60, connect=10)
+            timeout = aiohttp.ClientTimeout(total=120, connect=10)
             self.session = aiohttp.ClientSession(timeout=timeout)
             
             logger.info(f"Producer initialized successfully with {len(self.cities)} cities")
@@ -274,7 +262,7 @@ class WeatherProducer:
         partial = 0
         
         # Обработать города батчами для избежания перегрузки API
-        batch_size = 10  # Количество одновременных запросов
+        batch_size = 5  # Количество одновременных запросов
         
         for i in range(0, len(self.cities), batch_size):
             batch = self.cities[i:i + batch_size]
@@ -332,13 +320,6 @@ class WeatherProducer:
             except Exception as e:
                 logger.warning(f"Failed to save stats to Redis: {e}")
 
-    def run_collection(self):
-        """Запустить сбор данных (для scheduler)"""
-        try:
-            asyncio.run(self.collect_and_send_weather_data())
-        except Exception as e:
-            logger.error(f"Collection failed: {e}")
-
     async def refresh_cities_list(self):
         """Обновить список городов из базы данных"""
         try:
@@ -358,42 +339,57 @@ class WeatherProducer:
         
         await self.initialize()
         
-        # Настроить расписание
-        schedule.every(self.collection_interval).minutes.do(self.run_collection)
-        
-        # Обновлять список городов каждые 6 часов
-        schedule.every(6).hours.do(lambda: asyncio.create_task(self.refresh_cities_list()))
-        
         # Запустить первый сбор
         logger.info("Running initial weather data collection...")
         await self.collect_and_send_weather_data()
         
-        # Основной цикл
+        # Основной цикл с таймером
         logger.info(f"Producer started. Collecting data every {self.collection_interval} minutes.")
         
-        running = True
-        while running:
+        last_collection = time.time()
+        last_refresh = time.time()
+        
+        while True:
             try:
-                schedule.run_pending()
-                await asyncio.sleep(30)  # Проверка каждые 30 секунд
+                current_time = time.time()
+                
+                # Проверка времени для следующего сбора данных
+                if current_time - last_collection >= self.collection_interval * 60:
+                    logger.info("Starting scheduled weather data collection...")
+                    await self.collect_and_send_weather_data()
+                    last_collection = current_time
+                
+                # Обновление списка городов каждые 6 часов
+                if current_time - last_refresh >= 6 * 3600:
+                    logger.info("Refreshing cities list...")
+                    await self.refresh_cities_list()
+                    last_refresh = current_time
                 
                 # Heartbeat в Redis
                 if self.redis_client:
                     try:
+                        next_collection = datetime.fromtimestamp(
+                            last_collection + self.collection_interval * 60, 
+                            tz=timezone.utc
+                        ).isoformat()
+                        
                         heartbeat = {
                             'timestamp': datetime.now(timezone.utc).isoformat(),
                             'status': 'running',
                             'cities_count': len(self.cities),
-                            'next_collection': schedule.jobs[0].next_run.isoformat() if schedule.jobs else None,
+                            'next_collection': next_collection,
                             'api_endpoint': self.open_meteo_url
                         }
                         self.redis_client.setex('weather:producer_heartbeat', 120, json.dumps(heartbeat))
                     except Exception as e:
                         logger.warning(f"Failed to update heartbeat: {e}")
+                
+                # Спать 30 секунд перед следующей проверкой
+                await asyncio.sleep(30)
                         
             except KeyboardInterrupt:
                 logger.info("Received shutdown signal")
-                running = False
+                break
             except Exception as e:
                 logger.error(f"Error in main loop: {e}")
                 await asyncio.sleep(60)

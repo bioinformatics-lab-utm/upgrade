@@ -31,15 +31,15 @@ class WeatherConsumer:
 
     def initialize(self):
         try:
-            # Kafka Consumer
+            # Kafka Consumer - исправлен key_deserializer
             self.consumer = KafkaConsumer(
                 self.topic,
                 bootstrap_servers=self.kafka_servers,
                 group_id=self.consumer_group,
-                auto_offset_reset='latest',
+                auto_offset_reset='earliest',
                 enable_auto_commit=False,
                 value_deserializer=lambda x: json.loads(x.decode('utf-8')),
-                key_deserializer=lambda x: x.decode('utf-8')
+                key_deserializer=lambda x: x.decode('utf-8') if x else None
             )
             logger.info("Kafka consumer initialized")
             
@@ -86,9 +86,24 @@ class WeatherConsumer:
                 
                 result = cur.fetchone()
                 if result:
+                    logger.info("Found location_id: %s for %s (%s)", result['location_id'], city_name, country)
                     return result['location_id']
                 
-                # Найти по location_name
+                # Найти по location_name без "Weather Station"
+                cur.execute("""
+                    SELECT location_id FROM locations 
+                    WHERE LOWER(REPLACE(location_name, ' Weather Station', '')) = LOWER(%s) 
+                    AND country = %s
+                    AND is_active = true
+                    LIMIT 1
+                """, (city_name, country))
+                
+                result = cur.fetchone()
+                if result:
+                    logger.info("Found location_id: %s for %s (%s) via location_name", result['location_id'], city_name, country)
+                    return result['location_id']
+                
+                # Найти по частичному совпадению
                 cur.execute("""
                     SELECT location_id FROM locations 
                     WHERE LOWER(location_name) LIKE LOWER(%s) AND country = %s
@@ -98,13 +113,14 @@ class WeatherConsumer:
                 
                 result = cur.fetchone()
                 if result:
+                    logger.info("Found location_id: %s for %s (%s) via partial match", result['location_id'], city_name, country)
                     return result['location_id']
                 
-                logger.warning("Location not found: %s", city_name)
+                logger.warning("Location not found: %s (%s)", city_name, country)
                 return None
                 
         except Exception as e:
-            logger.error("get_location_id failed: %s", e)
+            logger.error("get_location_id failed for %s (%s): %s", city_name, country, e)
             return None
 
     def save_to_postgres(self, weather_event):
@@ -112,13 +128,14 @@ class WeatherConsumer:
             location = weather_event['location']
             quality = weather_event['quality']
             
-            location_id = self.get_location_id(location['name'])
+            # ИСПРАВЛЕНО: передаем страну из данных сообщения
+            location_id = self.get_location_id(location['name'], location['country'])
             if not location_id:
-                logger.error("No location_id for %s", location['name'])
+                logger.error("No location_id for %s (%s)", location['name'], location['country'])
                 return
             
             if not weather_event['weather_data'] or 'current' not in weather_event['weather_data']:
-                logger.warning("No current weather data")
+                logger.warning("No current weather data for %s (%s)", location['name'], location['country'])
                 return
                 
             current = weather_event['weather_data']['current']
@@ -136,7 +153,7 @@ class WeatherConsumer:
                 """, (location_id, measurement_time))
                 
                 if cur.fetchone():
-                    logger.info("Record already exists for %s", location['name'])
+                    logger.info("Record already exists for %s (%s) at %s", location['name'], location['country'], measurement_time)
                     return
                 
                 # Вставить новую запись
@@ -165,10 +182,10 @@ class WeatherConsumer:
                 
                 weather_id = cur.fetchone()[0]
                 self.postgres_conn.commit()
-                logger.info("Saved weather data for %s (ID: %s)", location['name'], weather_id)
+                logger.info("Saved weather data for %s (%s) - ID: %s", location['name'], location['country'], weather_id)
                 
         except Exception as e:
-            logger.error("Failed to save to PostgreSQL: %s", e)
+            logger.error("Failed to save to PostgreSQL for %s: %s", location.get('name', 'unknown'), e)
             if self.postgres_conn:
                 self.postgres_conn.rollback()
 
@@ -178,10 +195,13 @@ class WeatherConsumer:
             timestamp = datetime.fromisoformat(weather_event['timestamp'].replace('Z', '+00:00'))
             
             date_path = timestamp.strftime('%Y/%m/%d')
-            city_name = location['name'].lower().replace(' ', '_')
+            # Улучшена обработка названий городов с диакритическими знаками
+            city_name = location['name'].lower().replace(' ', '_').replace('-', '_')
+            # Убираем диакритические знаки для безопасных путей файлов
+            city_name = ''.join(c for c in city_name if c.isalnum() or c == '_')
             
-            json_filename = date_path + '/' + city_name + '/' + weather_event['event_id'] + '.json'
-            json_data = BytesIO(json.dumps(weather_event, indent=2).encode('utf-8'))
+            json_filename = f"{date_path}/{city_name}/{weather_event['event_id']}.json"
+            json_data = BytesIO(json.dumps(weather_event, indent=2, ensure_ascii=False).encode('utf-8'))
             
             self.minio_client.put_object(
                 bucket_name=self.minio_bucket,
@@ -194,13 +214,14 @@ class WeatherConsumer:
             logger.info("Saved to MinIO: %s", json_filename)
             
         except Exception as e:
-            logger.error("Failed to save to MinIO: %s", e)
+            logger.error("Failed to save to MinIO for %s: %s", location.get('name', 'unknown'), e)
 
     def process_weather_event(self, weather_event):
         try:
             event_id = weather_event.get('event_id', 'unknown')
             location_name = weather_event.get('location', {}).get('name', 'unknown')
-            logger.info("Processing event %s for %s", event_id, location_name)
+            country = weather_event.get('location', {}).get('country', 'unknown')
+            logger.info("Processing event %s for %s (%s)", event_id, location_name, country)
             
             if self.postgres_conn:
                 self.save_to_postgres(weather_event)
@@ -218,8 +239,12 @@ class WeatherConsumer:
         self.initialize()
         
         try:
+            logger.info("Starting to consume messages from topic: %s", self.topic)
             for message in self.consumer:
                 try:
+                    logger.info("Received message from partition %s, offset %s", 
+                              message.partition, message.offset)
+                    
                     weather_event = message.value
                     self.process_weather_event(weather_event)
                     self.consumer.commit()
@@ -229,7 +254,7 @@ class WeatherConsumer:
                     continue
                     
         except KeyboardInterrupt:
-            logger.info("Shutdown")
+            logger.info("Shutdown requested")
         except Exception as e:
             logger.error("Consumer error: %s", e)
         finally:
