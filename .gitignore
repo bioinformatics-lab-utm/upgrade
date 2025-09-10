@@ -1,0 +1,160 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# Virtual environments
+.env
+.venv
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Jupyter Notebook
+.ipynb_checkpoints
+
+# Docker
+.dockerignore
+
+# Environment variables
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+
+# Logs
+*.log
+logs/
+*.log.*
+
+# Database
+*.db
+*.sqlite
+*.sqlite3
+
+# MacOS
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# Windows
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+$RECYCLE.BIN/
+
+# Linux
+*~
+
+# Temporary files
+*.tmp
+*.temp
+temp/
+tmp/
+
+# Docker volumes data (if using local volumes)
+postgres_data/
+kafka_data/
+zookeeper_data/
+redis_data/
+minio_data/
+airflow_logs/
+
+# MinIO/S3 local storage
+uploads/
+results/
+
+# Streamlit
+.streamlit/
+
+# Data files
+*.csv
+*.json
+*.xlsx
+*.xls
+data/
+datasets/
+
+# Backup files
+*.bak
+*.backup
+
+# Compressed files
+*.7z
+*.dmg
+*.gz
+*.iso
+*.jar
+*.rar
+*.tar
+*.zip
+
+# Local configuration overrides
+docker-compose.override.yml
+docker-compose.local.yml
+
+# Airflow
+airflow.cfg
+airflow.db
+airflow-webserver.pid
+standalone_admin_password.txt
+
+# Kafka data
+kafka_logs/
+
+# PostgreSQL
+pgdata/
+
+# Node modules (if using any Node.js tools)
+node_modules/
+
+# Python testing
+.pytest_cache/
+.coverage
+htmlcov/
+.tox/
+
+# Research and documentation drafts
+drafts/
+notes/
+*.draft
+
+# Credentials and secrets
+credentials.json
+secrets.yaml
+*.pem
+*.key
+*.crt
+
+# Project specific
+weather_data_backup/
+archive/
