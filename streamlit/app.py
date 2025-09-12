@@ -73,8 +73,8 @@ def get_minio_client():
 def validate_genomic_file(uploaded_file):
     """Валидация загружаемых геномных файлов"""
     allowed_extensions = ['.fastq', '.fastq.gz', '.fq', '.fq.gz', '.fasta', '.fa', '.bam', '.sam', '.vcf', '.vcf.gz']
-    max_size_mb = 500  # Максимальный размер файла 500MB
-    
+    max_size_mb = 10000  # Максимальный размер файла 10000MB
+
     errors = []
     
     # Проверка расширения файла
@@ -983,63 +983,29 @@ def system_status_page():
     else:
         st.error("Database connection: Failed")
 
+# Замени функцию main() в app.py на эту версию:
+
 def main():
     """Главная функция приложения"""
     st.title("UPGRADE - Environmental Genomic Surveillance Platform")
     st.markdown("Real-time monitoring of environmental conditions across Romania and Moldova")
     
-    # Выпадающее меню в сайдбаре
+    # Нормальное боковое меню
     with st.sidebar:
         st.title("Navigation")
         
-        # Основные разделы
-        st.markdown("### Main Sections")
-        main_section = st.selectbox(
-            "Choose main section:",
-            ["Dashboard", "Data Management", "Analytics", "System"],
-            label_visibility="collapsed"
+        # Прямые ссылки на страницы
+        page = st.radio(
+            "Choose page:",
+            [
+                "Dashboard",
+                "Locations", 
+                "Weather Details",
+                "Genomic Upload",
+                "System Status"
+            ],
+            index=0
         )
-        
-        # Подразделы в зависимости от выбранного раздела
-        if main_section == "Dashboard":
-            st.markdown("### Dashboard Options")
-            page = st.selectbox(
-                "Dashboard view:",
-                ["Overview", "Real-time Monitoring"],
-                key="dashboard_sub",
-                label_visibility="collapsed"
-            )
-            page = "Dashboard"  # Всегда направляем на dashboard
-            
-        elif main_section == "Data Management":
-            st.markdown("### Data Management")
-            page = st.selectbox(
-                "Data options:",
-                ["Locations", "Weather Details", "Genomic Upload"],
-                key="data_sub",
-                label_visibility="collapsed"
-            )
-            
-        elif main_section == "Analytics":
-            st.markdown("### Analytics Options") 
-            page = st.selectbox(
-                "Analytics view:",
-                ["Weather Analytics", "Genomic Analysis", "Reports"],
-                key="analytics_sub",
-                label_visibility="collapsed"
-            )
-            # Пока направляем на Weather Details для аналитики
-            page = "Weather Details"
-            
-        elif main_section == "System":
-            st.markdown("### System Management")
-            page = st.selectbox(
-                "System options:",
-                ["System Status", "Configuration", "Logs"],
-                key="system_sub", 
-                label_visibility="collapsed"
-            )
-            page = "System Status"  # Направляем на системный статус
         
         st.markdown("---")
         

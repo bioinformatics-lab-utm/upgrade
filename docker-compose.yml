@@ -141,29 +141,52 @@ services:
   airflow-init:
     image: apache/airflow:2.7.3-python3.11
     container_name: upgrade_airflow_init
-    command: >
-      bash -c "
-        airflow db init &&
-        airflow users create \
+    entrypoint: /bin/bash
+    command:
+      - -c
+      - |
+        if [[ -z "${AIRFLOW_UID}" ]]; then
+          echo "Setting AIRFLOW_UID to $(id -u)"
+          export AIRFLOW_UID=$(id -u)
+        fi
+        
+        echo "Creating directories..."
+        mkdir -p /opt/airflow/{logs,dags,plugins,config}
+        
+        echo "Setting permissions..."
+        chown -R "${AIRFLOW_UID}:0" /opt/airflow/
+        
+        echo "Initializing database..."
+        /entrypoint airflow db init
+        
+        echo "Creating admin user..."
+        /entrypoint airflow users create \
           --username admin \
           --firstname Admin \
           --lastname User \
           --role Admin \
           --email admin@upgrade.com \
           --password admin123
-      "
     environment:
       - AIRFLOW_UID=${AIRFLOW_UID}
       - AIRFLOW__CORE__EXECUTOR=${AIRFLOW__CORE__EXECUTOR}
       - AIRFLOW__DATABASE__SQL_ALCHEMY_CONN=${AIRFLOW__DATABASE__SQL_ALCHEMY_CONN}
+      - _AIRFLOW_DB_MIGRATE=true
+      - _AIRFLOW_WWW_USER_CREATE=true
+      - _AIRFLOW_WWW_USER_USERNAME=admin
+      - _AIRFLOW_WWW_USER_PASSWORD=admin123
     volumes:
       - airflow_logs:/opt/airflow/logs
+      - ./airflow/dags:/opt/airflow/dags
+      - ./airflow/plugins:/opt/airflow/plugins
+      - ./airflow/config:/opt/airflow/config
     networks:
       - upgrade_network
     depends_on:
       postgres:
         condition: service_healthy
     restart: "no"
+    user: "0:0"
 
   zookeeper:
     image: confluentinc/cp-zookeeper:7.4.0
