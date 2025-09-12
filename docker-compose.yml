@@ -289,17 +289,38 @@ services:
       - ./data:/data
       - ./results:/results
     environment:
-      - POSTGRES_HOST=postgres  # Важно: имя сервиса из docker-compose
-      - POSTGRES_DB=${POSTGRES_DB}           # Используйте переменные из .env
-      - POSTGRES_USER=${POSTGRES_USER}       # Вместо жестко заданных значений
+      # Исправленные переменные окружения
+      - POSTGRES_HOST=postgres
+      - POSTGRES_DB=${POSTGRES_DB}
+      - POSTGRES_USER=${POSTGRES_USER}
       - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+      - POSTGRES_PORT=5432
       - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - REDIS_PASSWORD=${REDIS_PASSWORD}  # Добавлено
+      
+      # Streamlit конфигурация
+      - STREAMLIT_SERVER_PORT=8501
+      - STREAMLIT_SERVER_ADDRESS=0.0.0.0
+      - STREAMLIT_SERVER_HEADLESS=true
+      - STREAMLIT_BROWSER_GATHER_USAGE_STATS=false
+    
     networks:
-      - upgrade_network  # Та же сеть что и остальные сервисы
+      - upgrade_network
     depends_on:
-      - postgres
-      - redis
+      postgres:
+        condition: service_healthy  # Ждем пока Postgres будет готов
+      redis:
+        condition: service_healthy  # Ждем пока Redis будет готов
     restart: unless-stopped
+    
+    # Добавим healthcheck для Streamlit
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8501/healthz"] 
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
   
   # nextflow-worker:
   #   image: nextflow/nextflow:23.10.0
