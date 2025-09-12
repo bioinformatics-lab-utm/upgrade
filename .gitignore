@@ -1,4 +1,30 @@
-# Python
+# ============================================
+# NEXTFLOW SPECIFIC
+# ============================================
+work/
+.nextflow/
+.nextflow.log*
+.nextflow.pid*
+*.pid
+.command.*
+*.trace
+*.dag.*
+timeline.html
+trace.txt
+report.html
+
+# Nextflow configuration overrides
+nextflow.config.local
+*.config.local
+
+# Singularity/Docker images
+*.img
+*.sif
+singularity/
+
+# ============================================
+# PYTHON
+# ============================================
 __pycache__/
 *.py[cod]
 *$py.class
@@ -31,40 +57,122 @@ ENV/
 env.bak/
 venv.bak/
 
-# IDE
+# Conda environments
+envs/
+environments/
+*.yml.lock
+*.yaml.lock
+
+# Python testing
+.pytest_cache/
+.coverage
+htmlcov/
+.tox/
+
+# ============================================
+# R
+# ============================================
+.Rproj.user/
+.Rhistory
+.RData
+.Ruserdata
+*.Rproj
+.Renviron
+
+# ============================================
+# IDE AND EDITORS
+# ============================================
 .vscode/
 .idea/
 *.swp
 *.swo
 *~
 
-# Jupyter Notebook
+# Sublime Text
+*.sublime-project
+*.sublime-workspace
+
+# Vim
+.vim/
+*.vim
+
+# Emacs
+*~
+\#*\#
+/.emacs.desktop
+/.emacs.desktop.lock
+*.elc
+auto-save-list
+tramp
+.\#*
+
+# ============================================
+# JUPYTER NOTEBOOK
+# ============================================
 .ipynb_checkpoints
 
-# Docker
+# ============================================
+# DOCKER
+# ============================================
 .dockerignore
 
-# Environment variables
+# Docker volumes data (if using local volumes)
+postgres_data/
+kafka_data/
+zookeeper_data/
+redis_data/
+minio_data/
+airflow_logs/
+
+# Minio system
+
+data/minio/.minio.sys/
+data/minio/weather-data/
+data/postgres_data/
+data/kafka_data/
+data/redis_data/
+
+# Docker compose overrides
+docker-compose.override.yml
+docker-compose.local.yml
+
+# ============================================
+# ENVIRONMENT VARIABLES
+# ============================================
 .env
 .env.local
 .env.development.local
 .env.test.local
 .env.production.local
 
-# Logs
+# ============================================
+# LOGS
+# ============================================
 *.log
 logs/
 *.log.*
 
-# Database
+# ============================================
+# DATABASE
+# ============================================
 *.db
 *.sqlite
 *.sqlite3
+
+# PostgreSQL
+pgdata/
+
+# ============================================
+# OPERATING SYSTEMS
+# ============================================
 
 # MacOS
 .DS_Store
 .AppleDouble
 .LSOverride
+.Spotlight-V100
+.Trashes
+ehthumbs.db
 
 # Windows
 Thumbs.db
@@ -75,19 +183,18 @@ $RECYCLE.BIN/
 # Linux
 *~
 
-# Temporary files
+# ============================================
+# TEMPORARY FILES
+# ============================================
 *.tmp
 *.temp
 temp/
 tmp/
+.tmp/
 
-# Docker volumes data (if using local volumes)
-postgres_data/
-kafka_data/
-zookeeper_data/
-redis_data/
-minio_data/
-airflow_logs/
+# ============================================
+# DATA FILES AND RESULTS
+# ============================================
 
 # MinIO/S3 local storage
 uploads/
@@ -96,19 +203,39 @@ results/
 # Streamlit
 .streamlit/
 
-# Data files
-*.csv
-*.json
+# Data files (uncomment specific ones if you want to track them)
+# *.csv
+# *.json
 *.xlsx
 *.xls
 data/
 datasets/
 
-# Backup files
+# Bioinformatics data files (uncomment if you don't want to track)
+*.fastq
+*.fastq.gz
+*.fq
+*.fq.gz
+*.bam
+*.sam
+*.vcf
+*.vcf.gz
+*.bed
+*.gtf
+*.gff
+*.fasta
+*.fa
+*.fna
+
+# ============================================
+# BACKUP FILES
+# ============================================
 *.bak
 *.backup
 
-# Compressed files
+# ============================================
+# COMPRESSED FILES
+# ============================================
 *.7z
 *.dmg
 *.gz
@@ -118,9 +245,9 @@ datasets/
 *.tar
 *.zip
 
-# Local configuration overrides
-docker-compose.override.yml
-docker-compose.local.yml
+# ============================================
+# WORKFLOW ENGINES
+# ============================================
 
 # Airflow
 airflow.cfg
@@ -128,33 +255,144 @@ airflow.db
 airflow-webserver.pid
 standalone_admin_password.txt
 
-# Kafka data
+# Kafka
 kafka_logs/
 
-# PostgreSQL
-pgdata/
-
-# Node modules (if using any Node.js tools)
+# ============================================
+# NODE.JS (if using any Node.js tools)
+# ============================================
 node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
 
-# Python testing
-.pytest_cache/
-.coverage
-htmlcov/
-.tox/
-
-# Research and documentation drafts
+# ============================================
+# RESEARCH AND DOCUMENTATION
+# ============================================
 drafts/
 notes/
 *.draft
+archive/
 
-# Credentials and secrets
+# Weather data backup (project specific)
+weather_data_backup/
+
+# ============================================
+# SECURITY AND CREDENTIALS
+# ============================================
 credentials.json
 secrets.yaml
+secrets.yml
 *.pem
 *.key
 *.crt
+.secrets/
+secrets/
+config/secrets.config
+*.secret
 
-# Project specific
-weather_data_backup/
-archive/
+# SSH keys
+id_rsa*
+id_ed25519*
+
+# API keys
+.api_keys
+api_keys.txt
+
+# ============================================
+# BIOINFORMATICS SPECIFIC
+# ============================================
+
+# BLAST databases
+*.nhr
+*.nin
+*.nsq
+*.nto
+*.ntf
+*.nsi
+
+# Index files
+*.idx
+*.bai
+*.csi
+*.tbi
+
+# Reference genomes (uncomment if large)
+reference/
+genomes/
+refs/
+
+# ============================================
+# PROJECT SPECIFIC - UPGRADE
+# ============================================
+
+# Test data (comment out if you want to track small test files)
+test_data/
+
+# Pathogen and AMR analysis results
+pathogen_results/
+amr_results/
+surveillance_reports/
+
+# UP-GEN platform data
+platform_data/
+user_uploads/
+
+# Metagenomic analysis outputs
+assemblies/
+annotations/
+taxonomic_profiles/
+
+# Quality control outputs
+qc_reports/
+fastqc_reports/
+nanoplot_reports/
+
+# Large sequencing files in specific directories
+raw_data/
+processed_data/
+sequencing_runs/
+
+# ============================================
+# FRONTEND (React) - UP-GEN Platform
+# ============================================
+frontend/build/
+frontend/dist/
+frontend/node_modules/
+frontend/.env.local
+frontend/.env.development.local
+frontend/.env.test.local
+frontend/.env.production.local
+frontend/storybook-static/
+
+# React component library builds
+components/dist/
+components/build/
+
+# ============================================
+# BACKEND (Sanic) - UP-GEN Platform  
+# ============================================
+backend/uploads/
+backend/media/
+backend/cache/
+backend/logs/
+backend/*.log
+backend/static/uploads/
+backend/sessions/
+backend/ssl/
+backend/*.pid
+
+# Sanic development
+backend/.sanic/
+api/.sanic/
+
+# Database files (if using SQLite in development)
+backend/*.db
+backend/*.sqlite*
+api/*.db
+api/*.sqlite*
+
+# User uploaded genomic data
+backend/user_data/
+api/user_data/
+genomic_uploads/

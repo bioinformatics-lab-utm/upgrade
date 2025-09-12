@@ -1,4 +1,4 @@
-@startuml UPGRADE_Architecture
+@startuml UPGRADE_Corrected_Architecture
 
 skinparam rectangle {
     BackgroundColor lightblue
@@ -10,19 +10,20 @@ skinparam package {
     BorderColor darkblue
 }
 
-title UPGRADE Project - Genomic Surveillance Platform
+title UPGRADE Project - Genomic Surveillance Platform (Corrected)
 
 package "Data Sources" {
     [Sample\nMetadata] as sample_meta
     [Weather/API\n(Hourly)] as weather_api
-    [Laboratory\nFASTQ Files] as lab_files
+    [Oxford Nanopore\nFASTQ Files] as ont_files
 }
 
 note top of sample_meta
 **Key Features:**
 • Weather: 13+ cities, hourly
-• Genomic: FASTQ files (+500GB)
-• Analysis: Real-time processing
+• Genomic: ONT FASTQ files (+500GB)
+• Metadata: Environmental variables
+• Focus: AMR genes & pathogens
 end note
 
 package "Users" {
@@ -35,148 +36,220 @@ package "Data Ingestion" {
     rectangle "Airflow" as airflow {
         [Weather ETL] as weather_etl
         [Sample Processing] as sample_proc
-        [File Upload] as file_upload
+        [ONT File Upload] as file_upload
     }
 }
 
-package "NextFlow Bioinformatics Pipeline" {
-    rectangle "Pre-processing" as preproc {
-        [Quality Control\n(Trimmomatic)] as qc
+package "NextFlow Bioinformatics Pipeline (UPGRADE)" {
+    rectangle "WP2: Sample Collection & Lab Methods" as wp2 {
+        [DNA Extraction\n(Quick-DNA HMW)] as dna_extract
+        [Library Prep\n(ONT SQK-LSK109)] as lib_prep
+        [GridION Sequencing\n(72h)] as sequencing
     }
     
-    [Assembly\n(Flye)] as assembly
-    [Binning\n(MetaBAT)] as binning
-    
-    rectangle "Analysis" as analysis {
-        [Taxonomic Profiling\n(Kraken2)] as taxonomy
-        [Functional Annotation\n(Prokka)] as annotation
-        [PATO Intersection] as pato
+    rectangle "WP3: Quality Control" as qc_wp {
+        [NanoPlot\n(Read Quality)] as nanoplot
+        [Filtlong\n(Quality Filtering)] as filtlong
     }
     
-    rectangle "Detection" as detection {
-        [AMR Detection\n(Abricate + CARD)] as amr_detect
-        [Virulence Detection\n(VFDB)] as vir_detect
+    rectangle "WP3: Assembly & Polishing" as assembly_wp {
+        [Flye\n(Metagenomic Assembly)] as flye
+        [Minimap2\n(Read Alignment)] as minimap2
+        [Racon\n(Consensus Polishing)] as racon
+        [Medaka\n(Final Polishing)] as medaka
+    }
+    
+    rectangle "WP3: Taxonomic Classification" as taxonomy_wp {
+        [Sourmash\n(k-mer Classification)] as sourmash
+        [Kraken2\n(Alternative Classification)] as kraken2
+        [MetaPhlAn\n(Microbial Profiling)] as metaphlan
+    }
+    
+    rectangle "WP3: AMR & Pathogen Detection" as detection_wp {
+        [Abricate + CARD\n(AMR Genes)] as abricate_card
+        [DeepARG\n(ML-based ARG)] as deeparg
+        [Prokka\n(Functional Annotation)] as prokka
+    }
+    
+    rectangle "WP3: Advanced Analysis" as advanced_wp {
+        [Nucmer\n(HGT Analysis)] as nucmer
+        [Assembly Stats\n(N50, Coverage)] as assembly_stats
+        [Bayesian Modeling\n(brms)] as bayesian
+    }
+    
+    rectangle "WP4: Integration" as integration_wp {
+        [Environmental\nMetadata Integration] as env_integration
+        [UP-GEN Platform\nData Processing] as upgen_processing
     }
 }
 
-note right of preproc
-**Processing Workflow:**
-QC -> Quality Control
-   -> Assembly (Flye)
-   -> Taxonomic Profiling
-   -> AMR Detection
-   -> Functional Annotation
+note right of wp2
+**UPGRADE Specific Workflow:**
+ONT Sequencing -> NanoPlot/Filtlong QC
+-> Flye Assembly -> Racon/Medaka Polish
+-> Sourmash/Kraken2 Taxonomy
+-> Abricate+CARD AMR Detection
+-> Nucmer HGT Analysis
+-> Environmental Integration
 end note
 
 package "Data Lake (MinIO)" {
     package "Raw Layer" {
         [weather-api/] as weather_raw
         [metadata/] as meta_raw
-        [fastq/] as fastq_raw
+        [ont-fastq/] as ont_raw
+        [sample-locations/] as locations_raw
     }
     
     package "Bronze Layer" {
-        [qc-fastq/] as qc_fastq
+        [qc-ont-reads/] as qc_ont
         [validated-weather/] as validated_weather
         [sample-registry/] as sample_registry
+        [extracted-dna/] as dna_registry
     }
     
     package "Silver Layer" {
-        [assemblies/] as assemblies
-        [pathogens-lists/] as pathogens
-        [virulence-results/] as virulence
-        [amr-results/] as amr_results
+        [flye-assemblies/] as assemblies
+        [polished-contigs/] as polished
         [taxonomic-profiles/] as taxonomy_profiles
+        [amr-card-results/] as amr_results
+        [hgt-analysis/] as hgt_results
+        [assembly-statistics/] as assembly_stats_data
     }
     
     package "Gold Layer" {
-        [integrated-datasets/] as integrated
-        [dashboard-feeds/] as dashboard
+        [integrated-amr-env/] as integrated_amr
+        [pathogen-surveillance/] as pathogen_surveillance
+        [upgen-dashboard-feeds/] as upgen_dashboard
+        [one-health-insights/] as one_health
     }
 }
 
 package "PostgreSQL Warehouse" {
     package "Dimension Tables" {
-        [locations] as locations
-        [samples] as samples
+        [campus_locations] as locations
+        [sampling_sites] as sites
+        [environmental_conditions] as env_conditions
+        [sequencing_runs] as seq_runs
     }
     
     package "Fact Tables" {
         [weather_measurements] as weather_facts
-        [detected_pathogens] as pathogen_facts
-        [virulence_factors] as virulence_facts
-        [amr_genes] as amr_facts
+        [detected_amr_genes] as amr_facts
+        [pathogen_identifications] as pathogen_facts
+        [assembly_metrics] as assembly_facts
+        [hgt_events] as hgt_facts
     }
 }
 
-package "Analytics & Visualization" {
-    [Metabase\nWarehouse] as metabase
-    [REST API] as rest_api
-    [Data Quality\nMonitoring] as dq_monitor
+package "UP-GEN Platform (WP4)" {
+    [Interactive GUI\n(Geospatial Analysis)] as upgen_gui
+    [AMR Distribution\nMapping] as amr_mapping
+    [Environmental\nCorrelation Analysis] as env_correlation
+    [Real-time\nPathogen Alerts] as pathogen_alerts
 }
 
-note bottom of metabase
-**Dashboard Features:**
-• Interactive pathogen maps
-• AMR distribution analysis
-• Weather-pathogen correlations
-• Real-time alert system
+package "Analytics & Visualization" {
+    [UP-GEN Web Interface] as upgen_web
+    [REST API\n(Community Access)] as rest_api
+    [Data Quality\nMonitoring] as dq_monitor
+    [One Health\nDashboard] as one_health_dash
+}
+
+note bottom of upgen_web
+**UP-GEN Platform Features:**
+• Campus-specific AMR tracking
+• Environmental factor correlations
+• Temporal pathogen patterns
+• Community data sharing
+• One Health integration
 end note
 
 ' Data Sources to Ingestion
 sample_meta --> airflow
 weather_api --> weather_etl
-lab_files --> file_upload
+ont_files --> file_upload
 
 ' Users to System
-lab_tech --> airflow
-pub_health --> metabase
+lab_tech --> wp2
+pub_health --> upgen_web
 researchers --> rest_api
 
-' Ingestion to Pipeline
-weather_etl --> weather_raw
-sample_proc --> preproc
-file_upload --> fastq_raw
+' Lab workflow
+file_upload --> ont_raw
+wp2 --> dna_extract
+dna_extract --> lib_prep
+lib_prep --> sequencing
+sequencing --> ont_raw
 
-' Pipeline Flow
-preproc --> qc
-qc --> assembly
-assembly --> binning
-binning --> analysis
-analysis --> taxonomy
-analysis --> annotation
-analysis --> pato
-analysis --> detection
-detection --> amr_detect
-detection --> vir_detect
+' Pipeline Flow - WP3 Bioinformatics
+ont_raw --> qc_wp
+qc_wp --> nanoplot
+nanoplot --> filtlong
+filtlong --> assembly_wp
+assembly_wp --> flye
+flye --> minimap2
+minimap2 --> racon
+racon --> medaka
+
+' Analysis branches
+medaka --> taxonomy_wp
+medaka --> detection_wp
+medaka --> advanced_wp
+
+taxonomy_wp --> sourmash
+taxonomy_wp --> kraken2
+taxonomy_wp --> metaphlan
+
+detection_wp --> abricate_card
+detection_wp --> deeparg
+detection_wp --> prokka
+
+advanced_wp --> nucmer
+advanced_wp --> assembly_stats
+advanced_wp --> bayesian
+
+' Integration - WP4
+sourmash --> integration_wp
+abricate_card --> integration_wp
+assembly_stats --> integration_wp
+integration_wp --> env_integration
+env_integration --> upgen_processing
 
 ' Pipeline to Data Lake
-qc --> qc_fastq
-assembly --> assemblies
-taxonomy --> taxonomy_profiles
-annotation --> pathogens
-amr_detect --> amr_results
-vir_detect --> virulence
-pato --> integrated
+filtlong --> qc_ont
+medaka --> assemblies
+medaka --> polished
+sourmash --> taxonomy_profiles
+abricate_card --> amr_results
+nucmer --> hgt_results
+assembly_stats --> assembly_stats_data
 
 ' Data Lake Flow
 weather_raw --> validated_weather : "validated"
-qc_fastq --> assemblies : "processed"
-assemblies --> integrated : "integrated"
-amr_results --> dashboard
+qc_ont --> assemblies : "processed"
+assemblies --> integrated_amr : "integrated"
+amr_results --> pathogen_surveillance
+env_integration --> one_health
 
 ' Warehouse Integration
-integrated --> locations
-dashboard --> samples
+integrated_amr --> locations
+pathogen_surveillance --> sites
 amr_results --> amr_facts
-virulence --> virulence_facts
-pathogens --> pathogen_facts
+hgt_results --> hgt_facts
+assembly_stats_data --> assembly_facts
 validated_weather --> weather_facts
 
+' UP-GEN Platform
+upgen_processing --> upgen_gui
+amr_facts --> amr_mapping
+weather_facts --> env_correlation
+pathogen_facts --> pathogen_alerts
+
 ' Analytics
-weather_facts --> metabase
-pathogen_facts --> metabase
-amr_facts --> rest_api
-metabase --> dq_monitor
+upgen_gui --> upgen_web
+amr_mapping --> rest_api
+pathogen_alerts --> one_health_dash
+upgen_web --> dq_monitor
 
 @enduml

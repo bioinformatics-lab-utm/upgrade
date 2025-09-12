@@ -10,7 +10,6 @@
 - [x] Add health checks for all services
 - [ ] Create `.env.example` file
 - [x] Create `.env.local` file
-- [x] Rework `postgres` healthcheck
 
 ### Project Structure
 - [x] Create `/airflow/dags/` directory structure
@@ -19,7 +18,7 @@
 - [ ] Create `/config/` directory
 - [x] Create `/docs/` directory
 - [ ] Create `/scripts/` directory
-- [ ] Set up `.gitignore` with proper exclusions
+- [x] Set up `.gitignore` with proper exclusions
 - [x] Initialize git repository
 
 ### Core Services
@@ -297,7 +296,7 @@
 ## 6. Bioinformatics Pipeline
 
 ### Data Repository Exploration
-- [ ] Run ENA and NCBI SRA filter exploration scripts
+- [x] Run ENA and NCBI SRA filter exploration scripts
 - [ ] Execute UPGRADE-specific data search across both repositories  
 - [ ] Analyze database comparison results and recommendations
 - [ ] Identify top 1000 European metagenomic samples matching UPGRADE criteria

@@ -42,7 +42,7 @@ Foster a dynamic Romanian-Moldovan research collaboration focusing on rapid path
 
 ### Data Pipeline
 ```
-Weather API → MinIO (Raw) → Nextflow Pipeline → PostgreSQL → Metabase Dashboard
+<!-- Weather API → MinIO (Raw) → Nextflow Pipeline → PostgreSQL → Metabase Dashboard -->
 FASTQ Files → QC → Assembly → AMR Detection → Results Storage → Visualization
 ```
 
@@ -77,15 +77,15 @@ FASTQ Files → QC → Assembly → AMR Detection → Results Storage → Visual
 - **amr_genes:** Antimicrobial resistance genes and profiles
 - **virulence_factors:** Virulence factors and associated pathogens
 
-## Installation and Setup
+<!-- ## Installation and Setup
 
 ### Prerequisites
 - Docker and Docker Compose
 - Kubernetes cluster (for production)
 - WeatherAPI key
-- MinIO storage setup
+- MinIO storage setup -->
 
-### Repository Structure
+<!-- ### Repository Structure
 ```
 upgrade/
 ├── docs/
@@ -104,7 +104,7 @@ upgrade/
 │   ├── schema/                       # Database schemas
 │   └── migrations/                   # Database migrations
 └── README.md
-```
+``` -->
 
 ### Development Environment
 ```bash
@@ -113,7 +113,7 @@ cd upgrade
 docker-compose up -d
 ```
 
-### Generating Architecture Diagram
+<!-- ### Generating Architecture Diagram
 ```bash
 # Install PlantUML
 npm install -g plantuml
@@ -124,9 +124,9 @@ plantuml docs/architecture-diagram.puml -o docs/
 ```bash
 helm install upgrade ./kubernetes/helm-charts/upgrade
 kubectl apply -f kubernetes/manifests/
-```
+``` -->
 
-## Usage
+<!-- ## Usage
 
 ### Dashboard Access
 - **Public Dashboard:** http://your-domain.com/dashboard
@@ -137,7 +137,7 @@ kubectl apply -f kubernetes/manifests/
 1. Upload FASTQ files via web interface
 2. Complete sample metadata forms
 3. Monitor processing status in dashboard
-4. Access results through interactive visualizations
+4. Access results through interactive visualizations -->
 
 ## Team
 
