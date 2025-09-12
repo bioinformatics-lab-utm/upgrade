@@ -54,6 +54,20 @@
 
 - [ ] **Create working Airflow DAG for Nextflow integration** - Implement genomic_qc_pipeline.py DAG that accepts parameters (sample_id, input_file_path) via API, triggers Nextflow pipeline execution, updates PostgreSQL with job status and progress.
 
+- [ ] **Implement genomic_qc_pipeline.py DAG structure** - Create DAG with proper metadata, task dependencies, parameter validation, and error handling for manual and API-triggered execution.
+
+- [ ] **Add Nextflow task execution in Airflow DAG** - Create PythonOperator or BashOperator that executes `nextflow run main.nf` with dynamic parameters, proper working directory, and result capture.
+
+- [ ] **Configure Nextflow execution environment in Airflow** - Set up Docker access, MinIO credentials, working directories, and resource limits for Nextflow execution within Airflow containers.
+
+- [ ] **Test DAG parameter passing from Airflow API** - Validate that DAG correctly receives sample_id and input_file_path parameters via Airflow REST API trigger and passes them to Nextflow pipeline.
+
+- [ ] **Update Streamlit with Airflow API integration** - Add file upload functionality that triggers genomic_qc_pipeline DAG via Airflow REST API calls with proper authentication and parameter formatting.
+
+- [ ] **Implement pipeline status monitoring in Streamlit** - Create real-time progress tracking interface that polls Airflow API for DAG run status, displays current task execution, and shows completion progress.
+
+- [ ] **Test complete Streamlit → Airflow → Nextflow pipeline** - End-to-end testing of file upload in Streamlit, DAG trigger via API, Nextflow execution, and result display in Streamlit interface.
+
 - [ ] **Add Nextflow execution to Airflow DAG** - Create PythonOperator or BashOperator that runs Nextflow command with proper parameters, error handling, and result capture.
 
 - [ ] **Implement pipeline status tracking in database** - Create pipeline_runs table to track DAG execution status, progress, start/end times, error messages, and link to genomic_uploads.
@@ -163,7 +177,3 @@
 - [ ] **Create data quality monitoring system** - Automated data validation, quality scoring, data profiling, and data quality dashboards.
 
 - [ ] **Implement advanced security features** - Multi-factor authentication, API rate limiting, intrusion detection, and security incident response procedures.
-
-- [ ] `Helm` ???
-
-- [ ] `kubectl` ???
