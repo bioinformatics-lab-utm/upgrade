@@ -126,6 +126,7 @@ airflow_logs/
 
 # Minio system
 
+data/minio/
 data/minio/.minio.sys/
 data/minio/weather-data/
 data/postgres_data/
