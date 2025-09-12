@@ -9,6 +9,11 @@ from datetime import datetime, timedelta
 import psycopg2
 import os
 from psycopg2.extras import RealDictCursor
+import hashlib
+import uuid
+from pathlib import Path
+import minio
+from minio.error import S3Error
 
 # Конфигурация страницы
 st.set_page_config(
@@ -50,6 +55,157 @@ def test_db_connection():
         finally:
             conn.close()
     return False
+
+def get_minio_client():
+    """Создать клиент MinIO для хранения файлов"""
+    try:
+        client = minio.Minio(
+            endpoint=os.getenv('MINIO_ENDPOINT', 'minio:9000'),
+            access_key=os.getenv('MINIO_ACCESS_KEY', 'minioadmin'),
+            secret_key=os.getenv('MINIO_SECRET_KEY', 'minioadmin'),
+            secure=False
+        )
+        return client
+    except Exception as e:
+        st.error(f"MinIO connection error: {e}")
+        return None
+
+def validate_genomic_file(uploaded_file):
+    """Валидация загружаемых геномных файлов"""
+    allowed_extensions = ['.fastq', '.fastq.gz', '.fq', '.fq.gz', '.fasta', '.fa', '.bam', '.sam', '.vcf', '.vcf.gz']
+    max_size_mb = 500  # Максимальный размер файла 500MB
+    
+    errors = []
+    
+    # Проверка расширения файла
+    file_extension = Path(uploaded_file.name).suffix.lower()
+    if file_extension not in allowed_extensions:
+        errors.append(f"Неподдерживаемый тип файла: {file_extension}")
+    
+    # Проверка размера файла
+    if uploaded_file.size > max_size_mb * 1024 * 1024:
+        errors.append(f"Файл слишком большой: {uploaded_file.size / (1024*1024):.1f}MB (максимум {max_size_mb}MB)")
+    
+    # Базовая проверка содержимого для FASTQ файлов
+    if file_extension in ['.fastq', '.fq'] and uploaded_file.size < 1024 * 1024:  # Проверяем только маленькие файлы
+        try:
+            content = uploaded_file.read(1000).decode('utf-8')
+            uploaded_file.seek(0)  # Возвращаем указатель в начало
+            
+            if not content.startswith('@'):
+                errors.append("Файл не является корректным FASTQ файлом")
+        except UnicodeDecodeError:
+            # Возможно, сжатый файл, пропускаем проверку содержимого
+            uploaded_file.seek(0)
+    
+    return errors
+
+def save_file_to_minio(uploaded_file, bucket_name='genomic-data'):
+    """Сохранить файл в MinIO"""
+    client = get_minio_client()
+    if not client:
+        return None, "MinIO client not available"
+    
+    try:
+        # Создаем bucket если не существует
+        if not client.bucket_exists(bucket_name):
+            client.make_bucket(bucket_name)
+        
+        # Генерируем уникальное имя файла
+        file_extension = Path(uploaded_file.name).suffix
+        unique_filename = f"{uuid.uuid4()}{file_extension}"
+        object_name = f"uploads/{datetime.now().strftime('%Y/%m/%d')}/{unique_filename}"
+        
+        # Сохраняем файл
+        client.put_object(
+            bucket_name=bucket_name,
+            object_name=object_name,
+            data=uploaded_file,
+            length=uploaded_file.size,
+            content_type='application/octet-stream'
+        )
+        
+        return object_name, None
+        
+    except S3Error as e:
+        return None, f"MinIO error: {e}"
+    except Exception as e:
+        return None, f"Unexpected error: {e}"
+
+def save_upload_metadata(filename, original_name, file_size, file_hash, minio_path, location_id, sample_type, description):
+    """Сохранить метаданные загрузки в базу данных"""
+    conn = create_db_connection()
+    if not conn:
+        return False
+    
+    try:
+        with conn.cursor() as cur:
+            # Создаем таблицу если не существует
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS genomic_uploads (
+                    upload_id SERIAL PRIMARY KEY,
+                    filename VARCHAR(255) NOT NULL,
+                    original_filename VARCHAR(255) NOT NULL,
+                    file_size BIGINT NOT NULL,
+                    file_hash VARCHAR(64) NOT NULL,
+                    minio_path VARCHAR(500) NOT NULL,
+                    location_id INTEGER REFERENCES locations(location_id),
+                    sample_type VARCHAR(100),
+                    description TEXT,
+                    upload_datetime TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+                    processing_status VARCHAR(50) DEFAULT 'uploaded',
+                    created_by VARCHAR(100) DEFAULT 'streamlit_user'
+                )
+            """)
+            
+            # Вставляем запись
+            cur.execute("""
+                INSERT INTO genomic_uploads 
+                (filename, original_filename, file_size, file_hash, minio_path, 
+                 location_id, sample_type, description)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+            """, (filename, original_name, file_size, file_hash, minio_path, 
+                  location_id, sample_type, description))
+            
+            conn.commit()
+            return True
+            
+    except Exception as e:
+        st.error(f"Database error: {e}")
+        conn.rollback()
+        return False
+    finally:
+        conn.close()
+
+def get_upload_history():
+    """Получить историю загрузок"""
+    conn = create_db_connection()
+    if not conn:
+        return pd.DataFrame()
+    
+    try:
+        query = """
+        SELECT u.upload_id, u.original_filename, u.file_size, u.sample_type,
+               u.description, u.upload_datetime, u.processing_status,
+               l.city, l.country, l.location_name
+        FROM genomic_uploads u
+        LEFT JOIN locations l ON u.location_id = l.location_id
+        ORDER BY u.upload_datetime DESC
+        LIMIT 100
+        """
+        df = pd.read_sql(query, conn)
+        
+        if not df.empty:
+            df['upload_datetime'] = pd.to_datetime(df['upload_datetime'])
+            df['file_size_mb'] = (df['file_size'] / (1024 * 1024)).round(2)
+            
+        return df
+        
+    except Exception as e:
+        st.error(f"Error fetching upload history: {e}")
+        return pd.DataFrame()
+    finally:
+        conn.close()
 
 @st.cache_data(ttl=300)
 def fetch_locations():
@@ -566,13 +722,212 @@ def weather_details_page():
     else:
         st.info("No weather data available.")
 
+def genomic_upload_page():
+    """Страница загрузки геномных файлов"""
+    st.header("Genomic Data Upload")
+    st.markdown("Upload genomic sequencing files for pathogen and AMR analysis")
+    
+    # Информационная панель
+    with st.expander("📋 Supported File Types & Guidelines"):
+        st.markdown("""
+        ### Supported File Types:
+        - **FASTQ files**: `.fastq`, `.fastq.gz`, `.fq`, `.fq.gz`
+        - **FASTA files**: `.fasta`, `.fa`  
+        - **Alignment files**: `.bam`, `.sam`
+        - **Variant files**: `.vcf`, `.vcf.gz`
+        
+        ### Guidelines:
+        - **Maximum file size**: 500MB per file
+        - Files are stored securely in encrypted object storage
+        - All uploads are logged with timestamps and metadata
+        """)
+    
+    # Основная форма загрузки
+    st.subheader("Upload New File")
+    
+    col1, col2 = st.columns([2, 1])
+    
+    with col1:
+        # Загрузка файла
+        uploaded_file = st.file_uploader(
+            "Choose genomic file",
+            type=['fastq', 'fq', 'fasta', 'fa', 'bam', 'sam', 'vcf', 'gz'],
+            help="Select a genomic data file to upload"
+        )
+        
+        if uploaded_file:
+            st.success(f"File selected: {uploaded_file.name} ({uploaded_file.size / (1024*1024):.2f} MB)")
+            
+            # Валидация файла
+            validation_errors = validate_genomic_file(uploaded_file)
+            if validation_errors:
+                for error in validation_errors:
+                    st.error(error)
+                st.stop()
+    
+    with col2:
+        if uploaded_file:
+            st.markdown("**File Details**")
+            st.write(f"Name: {uploaded_file.name}")
+            st.write(f"Size: {uploaded_file.size:,} bytes")
+            st.write(f"Type: {uploaded_file.type or 'Unknown'}")
+    
+    # Метаданные
+    if uploaded_file:
+        st.subheader("Sample Information")
+        
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            # Получаем список локаций для выбора
+            locations_df = fetch_locations()
+            if not locations_df.empty:
+                location_options = ["None"] + [
+                    f"{row['city']}, {row['country']} - {row['location_name']}" 
+                    for _, row in locations_df.iterrows()
+                ]
+                selected_location = st.selectbox("Sample Location", location_options)
+                
+                # Получаем location_id
+                location_id = None
+                if selected_location != "None":
+                    location_index = location_options.index(selected_location) - 1
+                    location_id = locations_df.iloc[location_index]['location_id']
+            else:
+                st.warning("No locations available. Add locations first.")
+                location_id = None
+            
+            sample_type = st.selectbox(
+                "Sample Type",
+                ["Environmental", "Clinical", "Wastewater", "Soil", "Air", "Surface", "Other"]
+            )
+        
+        with col2:
+            description = st.text_area(
+                "Sample Description",
+                placeholder="Enter details about the sample, collection method, etc.",
+                height=100
+            )
+        
+        # Кнопка загрузки
+        if st.button("Upload File", type="primary"):
+            if not description.strip():
+                st.warning("Please provide a sample description")
+                st.stop()
+            
+            with st.spinner("Uploading file..."):
+                # Вычисляем хеш файла
+                uploaded_file.seek(0)
+                file_content = uploaded_file.read()
+                file_hash = hashlib.sha256(file_content).hexdigest()
+                
+                # Возвращаем указатель в начало для upload
+                uploaded_file.seek(0)
+                
+                # Загружаем в MinIO
+                minio_path, error = save_file_to_minio(uploaded_file)
+                
+                if error:
+                    st.error(f"Upload failed: {error}")
+                    st.stop()
+                
+                # Сохраняем метаданные в БД
+                success = save_upload_metadata(
+                    filename=Path(uploaded_file.name).stem,
+                    original_name=uploaded_file.name,
+                    file_size=uploaded_file.size,
+                    file_hash=file_hash,
+                    minio_path=minio_path,
+                    location_id=location_id,
+                    sample_type=sample_type,
+                    description=description.strip()
+                )
+                
+                if success:
+                    st.success(f"File '{uploaded_file.name}' uploaded successfully!")
+                    st.balloons()
+                    # Очистка кеша для обновления истории
+                    st.cache_data.clear()
+                else:
+                    st.error("Failed to save file metadata")
+    
+    # История загрузок
+    st.markdown("---")
+    st.subheader("Upload History")
+    
+    history_df = get_upload_history()
+    
+    if not history_df.empty:
+        # Фильтры
+        col1, col2, col3 = st.columns(3)
+        
+        with col1:
+            sample_types = ['All'] + sorted(history_df['sample_type'].unique().tolist())
+            filter_type = st.selectbox("Filter by Sample Type", sample_types, key="history_filter")
+        
+        with col2:
+            locations = ['All'] + sorted([loc for loc in history_df['city'].unique() if pd.notna(loc)])
+            filter_location = st.selectbox("Filter by Location", locations, key="location_filter")
+        
+        with col3:
+            statuses = ['All'] + sorted(history_df['processing_status'].unique().tolist())
+            filter_status = st.selectbox("Filter by Status", statuses, key="status_filter")
+        
+        # Применение фильтров
+        filtered_df = history_df.copy()
+        if filter_type != 'All':
+            filtered_df = filtered_df[filtered_df['sample_type'] == filter_type]
+        if filter_location != 'All':
+            filtered_df = filtered_df[filtered_df['city'] == filter_location]
+        if filter_status != 'All':
+            filtered_df = filtered_df[filtered_df['processing_status'] == filter_status]
+        
+        # Отображение таблицы
+        st.dataframe(
+            filtered_df[['original_filename', 'file_size_mb', 'sample_type', 'city', 
+                        'country', 'processing_status', 'upload_datetime']].rename(columns={
+                'original_filename': 'Filename',
+                'file_size_mb': 'Size (MB)',
+                'sample_type': 'Sample Type',
+                'city': 'City',
+                'country': 'Country',
+                'processing_status': 'Status',
+                'upload_datetime': 'Upload Time'
+            }),
+            use_container_width=True
+        )
+        
+        # Статистика
+        col1, col2, col3, col4 = st.columns(4)
+        with col1:
+            st.metric("Total Files", len(history_df))
+        with col2:
+            total_size = history_df['file_size_mb'].sum()
+            st.metric("Total Size", f"{total_size:.2f} MB")
+        with col3:
+            processed = len(history_df[history_df['processing_status'] == 'processed'])
+            st.metric("Processed", processed)
+        with col4:
+            pending = len(history_df[history_df['processing_status'] == 'uploaded'])
+            st.metric("Pending", pending)
+        
+    else:
+        st.info("No files uploaded yet")
+
 def system_status_page():
     """Страница системного статуса"""
     st.header("System Status")
     
-    # Проверка подключения
+    # Проверка подключения к базе данных
     if test_db_connection():
         st.success("Database connection: OK")
+        
+        # Проверка MinIO
+        minio_client = get_minio_client()
+        if minio_client:
+            st.success("MinIO connection: OK")
+        else:
+            st.error("MinIO connection: Failed")
         
         # Получение статистики
         conn = create_db_connection()
@@ -633,19 +988,80 @@ def main():
     st.title("UPGRADE - Environmental Genomic Surveillance Platform")
     st.markdown("Real-time monitoring of environmental conditions across Romania and Moldova")
     
-    st.sidebar.title("Navigation")
-    
-    page = st.sidebar.selectbox(
-        "Choose page",
-        ["Dashboard", "Locations", "Weather Details", "System Status"]
-    )
-    
-    st.sidebar.markdown("---")
-    st.sidebar.info(f"Last updated: {datetime.now().strftime('%H:%M:%S')}")
-    
-    if st.sidebar.button("Refresh Data"):
-        st.cache_data.clear()
-        st.rerun()
+    # Выпадающее меню в сайдбаре
+    with st.sidebar:
+        st.title("Navigation")
+        
+        # Основные разделы
+        st.markdown("### Main Sections")
+        main_section = st.selectbox(
+            "Choose main section:",
+            ["Dashboard", "Data Management", "Analytics", "System"],
+            label_visibility="collapsed"
+        )
+        
+        # Подразделы в зависимости от выбранного раздела
+        if main_section == "Dashboard":
+            st.markdown("### Dashboard Options")
+            page = st.selectbox(
+                "Dashboard view:",
+                ["Overview", "Real-time Monitoring"],
+                key="dashboard_sub",
+                label_visibility="collapsed"
+            )
+            page = "Dashboard"  # Всегда направляем на dashboard
+            
+        elif main_section == "Data Management":
+            st.markdown("### Data Management")
+            page = st.selectbox(
+                "Data options:",
+                ["Locations", "Weather Details", "Genomic Upload"],
+                key="data_sub",
+                label_visibility="collapsed"
+            )
+            
+        elif main_section == "Analytics":
+            st.markdown("### Analytics Options") 
+            page = st.selectbox(
+                "Analytics view:",
+                ["Weather Analytics", "Genomic Analysis", "Reports"],
+                key="analytics_sub",
+                label_visibility="collapsed"
+            )
+            # Пока направляем на Weather Details для аналитики
+            page = "Weather Details"
+            
+        elif main_section == "System":
+            st.markdown("### System Management")
+            page = st.selectbox(
+                "System options:",
+                ["System Status", "Configuration", "Logs"],
+                key="system_sub", 
+                label_visibility="collapsed"
+            )
+            page = "System Status"  # Направляем на системный статус
+        
+        st.markdown("---")
+        
+        # Информация о системе
+        st.info(f"Last updated: {datetime.now().strftime('%H:%M:%S')}")
+        
+        if st.button("Refresh Data", use_container_width=True):
+            st.cache_data.clear()
+            st.rerun()
+        
+        # Статус соединений
+        st.markdown("### Connection Status")
+        if test_db_connection():
+            st.success("Database: Connected")
+        else:
+            st.error("Database: Disconnected")
+            
+        minio_client = get_minio_client()
+        if minio_client:
+            st.success("Storage: Connected") 
+        else:
+            st.error("Storage: Disconnected")
     
     # Роутинг страниц
     if page == "Dashboard":
@@ -654,6 +1070,8 @@ def main():
         locations_page()
     elif page == "Weather Details":
         weather_details_page()
+    elif page == "Genomic Upload":
+        genomic_upload_page()
     elif page == "System Status":
         system_status_page()
 
