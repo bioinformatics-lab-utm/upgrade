@@ -8,3 +8,4 @@ psycopg2-binary==2.9.7
 redis==4.6.0
 python-dotenv==1.0.0
 minio>=7.1.17
+sqlalchemy==2.0.23

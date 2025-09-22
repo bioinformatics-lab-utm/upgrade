@@ -5,12 +5,14 @@ from airflow.operators.bash import BashOperator
 from airflow.providers.postgres.operators.postgres import PostgresOperator
 from airflow.providers.postgres.hooks.postgres import PostgresHook
 from airflow.providers.http.sensors.http import HttpSensor
+from airflow.providers.docker.operators.docker import DockerOperator
 
 import json
 import subprocess
 import os
 import requests
 import redis
+import time
 
 default_args = {
     'depends_on_past': False,
@@ -23,9 +25,11 @@ default_args = {
 dag = DAG(
     'genomic_qc_pipeline_mvp',
     default_args=default_args,
-    description='A genomic data QC pipeline MVP',
+    description='A genomic data QC pipeline MVP with Nextflow',
     schedule_interval=None,
     max_active_runs=5,
+    is_paused_upon_creation=False,  # AUTO ENABLE DAG!
+    tags=['genomic', 'qc', 'nextflow', 'upgrade'],
 )
 
 def validate_input_data(**context):
@@ -33,7 +37,7 @@ def validate_input_data(**context):
     dag_run = context['dag_run']
     conf = dag_run.conf or {}
     
-    required_params = ['sample_id', 'input_file_path', 'upload_id']
+    required_params = ['sample_id', 'input_file_path', 'pipeline_id']
     for param in required_params:
         if param not in conf:
             raise ValueError(f"Missing required parameter: {param}")
@@ -49,11 +53,15 @@ def validate_input_data(**context):
     return {
         'sample_id': sample_id,
         'input_file_path': input_file,
-        'upload_id': conf['upload_id'],
+        'pipeline_id': conf['pipeline_id'],
         'run_id': context['run_id'],
         'sample_type': conf.get('sample_type', 'Unknown'),
         'location_id': conf.get('location_id'),
-        'description': conf.get('description', '')
+        'description': conf.get('description', ''),
+        'sequencing_platform': conf.get('sequencing_platform', 'Unknown'),
+        'priority': conf.get('priority', 'Normal'),
+        'expected_organisms': conf.get('expected_organisms', ''),
+        'sample_db_id': conf.get('sample_db_id')
     }
 
 def create_pipeline_record(**context):
@@ -63,119 +71,134 @@ def create_pipeline_record(**context):
     
     postgres_hook = PostgresHook(postgres_conn_id='postgres_default')
     
-    # SQL для создания записи
+    # SQL для создания записи в pipeline_runs
     sql = """
     INSERT INTO pipeline_runs (
-        run_id, upload_id, sample_id, pipeline_name, status, 
-        input_file_path, output_directory, current_step, progress_percentage
+        pipeline_id, sample_id, pipeline_name, status, 
+        parameters, started_at, created_at, pipeline_version
     ) VALUES (
-        %s, %s, %s, 'genomic_qc', 'pending', %s, %s, 'initializing', 0
+        %s, %s, 'genomic_qc_nextflow', 'running', %s, NOW(), NOW(), '1.0'
     )
+    ON CONFLICT (pipeline_id) DO UPDATE SET
+        status = 'running',
+        started_at = NOW(),
+        parameters = EXCLUDED.parameters
     """
     
-    output_dir = f"s3://genomic-data/results/{params['run_id']}"
+    parameters_json = json.dumps({
+        'sample_type': params['sample_type'],
+        'sequencing_platform': params['sequencing_platform'],
+        'priority': params['priority'],
+        'expected_organisms': params['expected_organisms']
+    })
     
-    postgres_hook.run(sql, parameters=(
-        params['run_id'],
-        params['upload_id'],
-        params['sample_id'],
-        params['input_file_path'],
-        output_dir
-    ))
-    
-    print(f"Created pipeline record for run {params['run_id']}")
+    try:
+        postgres_hook.run(sql, parameters=(
+            params['pipeline_id'],
+            params.get('sample_db_id', 1),  # Используем sample_db_id
+            parameters_json
+        ))
+        print(f"Created/updated pipeline record for ID {params['pipeline_id']}")
+    except Exception as e:
+        print(f"Error creating pipeline record: {e}")
+        # Не прерываем выполнение, продолжаем с предупреждением
+        
     return params
 
-
-def update_pipeline_status(run_id: str, status: str, step: str = None, progress: int = None):
+def update_pipeline_status(pipeline_id: int, status: str, step: str = None, progress: int = None):
     """Обновление статуса пайплайна"""
     postgres_hook = PostgresHook(postgres_conn_id='postgres_default')
     
-    updates = ['status = %s', 'updated_at = NOW()']
+    updates = ['status = %s']
     values = [status]
     
     if step:
-        updates.append('current_step = %s')
+        updates.append('pipeline_name = %s')
         values.append(step)
     
-    if progress is not None:
-        updates.append('progress_percentage = %s')
+    if progress is not None and progress > 0:
+        updates.append('runtime_minutes = %s')
         values.append(progress)
     
-    sql = f"UPDATE pipeline_runs SET {', '.join(updates)} WHERE run_id = %s"
-    values.append(run_id)
+    if status == 'completed':
+        updates.append('completed_at = NOW()')
     
-    postgres_hook.run(sql, parameters=values)
+    sql = f"UPDATE pipeline_runs SET {', '.join(updates)} WHERE pipeline_id = %s"
+    values.append(pipeline_id)
+    
+    try:
+        postgres_hook.run(sql, parameters=values)
+        print(f"Updated pipeline {pipeline_id} status to {status}")
+    except Exception as e:
+        print(f"Error updating pipeline status: {e}")
 
 
 def run_nextflow_pipeline(**context):
-    """Запуск Nextflow пайплайна"""
+    """Запуск локального Nextflow с main.nf"""
     ti = context['task_instance']
     params = ti.xcom_pull(task_ids='create_pipeline_record')
-    run_id = params['run_id']
+    pipeline_id = params['pipeline_id']
     
     try:
-        # Обновляем статус
-        update_pipeline_status(run_id, 'running', 'nextflow_starting', 10)
+        update_pipeline_status(pipeline_id, 'running', 'nextflow_starting')
         
-        # Настройка путей
-        nextflow_dir = "/opt/airflow/dags/nextflow"  # Путь в контейнере Airflow
-        main_nf = f"{nextflow_dir}/main.nf"
-        config_file = f"{nextflow_dir}/nextflow.config"
-        work_dir = f"/tmp/nextflow-work/{run_id}"
+        # Директории
+        nextflow_dir = "/home/nicolaedrabcinski/research/lifetech/upgrade/nextflow"
+        work_dir = f"{nextflow_dir}/work/{pipeline_id}"
+        results_dir = f"{nextflow_dir}/results/{pipeline_id}"
         
-        # Создаем рабочую директорию
+        # Создаем директории
         os.makedirs(work_dir, exist_ok=True)
+        os.makedirs(results_dir, exist_ok=True)
         
-        # Команда для запуска Nextflow
+        # Команда для вашего main.nf
         cmd = [
-            'nextflow', 'run', main_nf,
-            '-c', config_file,
-            '-work-dir', work_dir,
-            '--input_dir', f"s3://genomic-data/{params['input_file_path']}",
-            '--outdir', f"s3://genomic-data/results/{run_id}",
+            'nextflow', 'run', 'main.nf',
+            '--input', f"/home/nicolaedrabcinski/research/lifetech/upgrade/data/{params['input_file_path']}",
+            '--outdir', results_dir,
             '--sample_id', params['sample_id'],
-            '-with-report', f"s3://genomic-data/reports/{run_id}/report.html",
-            '-with-timeline', f"s3://genomic-data/reports/{run_id}/timeline.html",
-            '-with-trace', f"s3://genomic-data/reports/{run_id}/trace.txt",
-            '-profile', 'docker',
+            '-work-dir', work_dir,
+            '-with-report', f"{results_dir}/nextflow_report.html",
+            '-with-timeline', f"{results_dir}/nextflow_timeline.html", 
+            '-with-trace', f"{results_dir}/nextflow_trace.txt",
             '-resume'
         ]
         
-        print(f"Running command: {' '.join(cmd)}")
+        print(f"Running Nextflow from {nextflow_dir}: {' '.join(cmd)}")
         
-        # Обновляем статус
-        update_pipeline_status(run_id, 'running', 'nextflow_executing', 20)
+        update_pipeline_status(pipeline_id, 'running', 'nextflow_executing')
         
-        # Запускаем Nextflow
+        # Запускаем nextflow из директории nextflow
         result = subprocess.run(
             cmd,
-            cwd=nextflow_dir,
             capture_output=True,
             text=True,
-            timeout=3600  # 1 час таймаут
+            timeout=3600,
+            cwd=nextflow_dir  # Запускаем из папки nextflow
         )
         
         if result.returncode == 0:
-            update_pipeline_status(run_id, 'completed', 'finished', 100)
+            update_pipeline_status(pipeline_id, 'completed', 'finished')
             print("Nextflow pipeline completed successfully")
             return {
                 'status': 'success',
-                'run_id': run_id,
-                'stdout': result.stdout[-1000:],  # Последние 1000 символов
-                'output_dir': f"s3://genomic-data/results/{run_id}"
+                'pipeline_id': pipeline_id,
+                'stdout': result.stdout[-1000:],
+                'results_dir': results_dir
             }
         else:
-            update_pipeline_status(run_id, 'failed', 'nextflow_failed', 0)
-            raise Exception(f"Nextflow failed with return code {result.returncode}: {result.stderr}")
+            update_pipeline_status(pipeline_id, 'failed', 'nextflow_failed')
+            print(f"Nextflow stderr: {result.stderr}")
+            raise Exception(f"Nextflow failed: {result.stderr}")
             
     except subprocess.TimeoutExpired:
-        update_pipeline_status(run_id, 'failed', 'timeout', 0)
+        update_pipeline_status(pipeline_id, 'failed', 'timeout')
         raise Exception("Nextflow pipeline timed out")
     except Exception as e:
-        update_pipeline_status(run_id, 'failed', 'error', 0)
+        update_pipeline_status(pipeline_id, 'failed', 'error')
         raise e
-    
+
+
 
 def parse_results_and_store(**context):
     """Парсинг результатов и сохранение в БД"""
@@ -187,24 +210,24 @@ def parse_results_and_store(**context):
         print("Pipeline failed, skipping results parsing")
         return
     
-    run_id = params['run_id']
+    pipeline_id = params['pipeline_id']
     
-    # Здесь можно добавить парсинг результатов NanoPlot и Filtlong
-    # Пока заглушка для сохранения базовой информации
-    
+    # Обновляем время завершения в pipeline_runs
     postgres_hook = PostgresHook(postgres_conn_id='postgres_default')
     
-    # Обновляем время завершения
     sql = """
     UPDATE pipeline_runs 
-    SET end_time = NOW(),
-        duration_seconds = EXTRACT(EPOCH FROM (NOW() - start_time))
-    WHERE run_id = %s
+    SET completed_at = NOW(),
+        runtime_minutes = EXTRACT(EPOCH FROM (NOW() - started_at))/60
+    WHERE pipeline_id = %s
     """
     
-    postgres_hook.run(sql, parameters=(run_id,))
-    
-    print(f"Results processed for run {run_id}")
+    try:
+        postgres_hook.run(sql, parameters=(pipeline_id,))
+        print(f"Results processed for pipeline {pipeline_id}")
+    except Exception as e:
+        print(f"Error updating completion time: {e}")
+
 
 def notify_completion(**context):
     """Уведомление о завершении пайплайна"""
@@ -212,7 +235,7 @@ def notify_completion(**context):
     params = ti.xcom_pull(task_ids='create_pipeline_record')
     pipeline_result = ti.xcom_pull(task_ids='run_nextflow')
     
-    run_id = params['run_id']
+    pipeline_id = params['pipeline_id']
     sample_id = params['sample_id']
     
     # Обновляем Redis для real-time уведомлений в Streamlit
@@ -226,22 +249,26 @@ def notify_completion(**context):
         
         notification = {
             'type': 'pipeline_completed',
-            'run_id': run_id,
+            'pipeline_id': pipeline_id,
             'sample_id': sample_id,
             'status': pipeline_result['status'] if pipeline_result else 'failed',
             'timestamp': datetime.now().isoformat(),
-            'output_dir': pipeline_result.get('output_dir') if pipeline_result else None
+            'results_dir': pipeline_result.get('results_dir') if pipeline_result else None
         }
         
         redis_client.lpush('pipeline_notifications', json.dumps(notification))
         redis_client.ltrim('pipeline_notifications', 0, 100)  # Храним последние 100
         
-        print(f"Notification sent for pipeline {run_id}")
+        print(f"Notification sent for pipeline {pipeline_id}")
         
     except Exception as e:
         print(f"Failed to send Redis notification: {e}")
 
+
+# ===========================================
 # Определение задач DAG
+# ===========================================
+
 validate_task = PythonOperator(
     task_id='validate_input',
     python_callable=validate_input_data,
@@ -257,9 +284,16 @@ create_record_task = PythonOperator(
 # Проверка доступности Nextflow
 check_nextflow = BashOperator(
     task_id='check_nextflow_available',
-    bash_command='which nextflow && nextflow -version',
+    bash_command='nextflow -version',  # Убрали docker exec
     dag=dag
 )
+
+# Создание mock workflow если нужно
+# create_workflow_task = PythonOperator(
+#     task_id='create_mock_workflow',
+#     python_callable=create_mock_nextflow_workflow,
+#     dag=dag
+# )
 
 run_pipeline_task = PythonOperator(
     task_id='run_nextflow',
@@ -280,5 +314,7 @@ notify_task = PythonOperator(
     trigger_rule='all_done'  # Выполняется независимо от успеха/неудачи
 )
 
+# ===========================================
 # Определение зависимостей
+# ===========================================
 validate_task >> create_record_task >> check_nextflow >> run_pipeline_task >> parse_results_task >> notify_task

@@ -1,0 +1,201 @@
+/* UPGRADE Project Styles */
+
+/* Main container styling */
+.main-header {
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    padding: 2rem;
+    border-radius: 10px;
+    margin-bottom: 2rem;
+    color: white;
+}
+
+/* Status cards */
+.status-card {
+    background-color: #f8f9fa;
+    padding: 1.5rem;
+    border-radius: 10px;
+    border-left: 4px solid #007bff;
+    margin-bottom: 1rem;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+}
+
+.status-success {
+    border-left-color: #28a745 !important;
+    background-color: #f8fff9;
+}
+
+.status-error {
+    border-left-color: #dc3545 !important;
+    background-color: #fff8f8;
+}
+
+.status-warning {
+    border-left-color: #ffc107 !important;
+    background-color: #fffcf0;
+}
+
+/* Metrics styling */
+.metric-container {
+    background: white;
+    padding: 1.5rem;
+    border-radius: 10px;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+    text-align: center;
+    border-top: 3px solid #007bff;
+}
+
+.metric-value {
+    font-size: 2.5rem;
+    font-weight: bold;
+    color: #007bff;
+    margin: 0.5rem 0;
+}
+
+.metric-label {
+    color: #6c757d;
+    font-size: 0.9rem;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+}
+
+/* Pipeline cards */
+.pipeline-card {
+    background: white;
+    border-radius: 10px;
+    padding: 1.5rem;
+    margin-bottom: 1rem;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+    border-left: 4px solid #007bff;
+}
+
+.pipeline-running {
+    border-left-color: #17a2b8 !important;
+}
+
+.pipeline-success {
+    border-left-color: #28a745 !important;
+}
+
+.pipeline-failed {
+    border-left-color: #dc3545 !important;
+}
+
+.pipeline-queued {
+    border-left-color: #ffc107 !important;
+}
+
+/* Progress bars */
+.stProgress > div > div > div > div {
+    background: linear-gradient(90deg, #007bff, #28a745);
+}
+
+/* Upload area styling */
+.upload-area {
+    border: 2px dashed #007bff;
+    border-radius: 10px;
+    padding: 2rem;
+    text-align: center;
+    background-color: #f8f9ff;
+    margin: 1rem 0;
+}
+
+/* Button styling */
+.stButton > button {
+    background: linear-gradient(135deg, #007bff, #0056b3);
+    color: white;
+    border: none;
+    border-radius: 5px;
+    padding: 0.5rem 1rem;
+    font-weight: bold;
+    transition: all 0.3s ease;
+}
+
+.stButton > button:hover {
+    background: linear-gradient(135deg, #0056b3, #004085);
+    transform: translateY(-1px);
+    box-shadow: 0 4px 8px rgba(0,0,0,0.2);
+}
+
+/* Sidebar styling */
+.css-1d391kg {
+    background: linear-gradient(180deg, #f8f9fa 0%, #e9ecef 100%);
+}
+
+/* Expander styling */
+.streamlit-expanderHeader {
+    background-color: #f8f9fa;
+    border-radius: 5px;
+    padding: 0.5rem;
+}
+
+/* Table styling */
+.dataframe {
+    border-radius: 10px;
+    overflow: hidden;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+}
+
+/* Alert styling */
+.alert-success {
+    background-color: #d4edda;
+    border: 1px solid #c3e6cb;
+    color: #155724;
+    padding: 1rem;
+    border-radius: 5px;
+    margin: 0.5rem 0;
+}
+
+.alert-error {
+    background-color: #f8d7da;
+    border: 1px solid #f5c6cb;
+    color: #721c24;
+    padding: 1rem;
+    border-radius: 5px;
+    margin: 0.5rem 0;
+}
+
+.alert-info {
+    background-color: #d1ecf1;
+    border: 1px solid #bee5eb;
+    color: #0c5460;
+    padding: 1rem;
+    border-radius: 5px;
+    margin: 0.5rem 0;
+}
+
+/* Responsive design */
+@media (max-width: 768px) {
+    .main-header {
+        padding: 1rem;
+    }
+    
+    .metric-container {
+        padding: 1rem;
+    }
+    
+    .metric-value {
+        font-size: 2rem;
+    }
+    
+    .status-card {
+        padding: 1rem;
+    }
+}
+
+/* Dark mode support */
+@media (prefers-color-scheme: dark) {
+    .status-card {
+        background-color: #2d3748;
+        color: #e2e8f0;
+    }
+    
+    .metric-container {
+        background-color: #2d3748;
+        color: #e2e8f0;
+    }
+    
+    .pipeline-card {
+        background-color: #2d3748;
+        color: #e2e8f0;
+    }
+}

@@ -1,23 +1,30 @@
 services:
+  # ===========================================
+  # WEATHER API SERVICE
+  # ===========================================
   open-meteo:
     image: public.ecr.aws/w5w8t1y7/openmeteo:latest
-    container_name: upgrade_open_meteo
+    container_name: ${COMPOSE_PROJECT_NAME}_open_meteo
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8080/v1/forecast?latitude=47&longitude=28&current_weather=true"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
+      test: ["CMD", "curl", "-f", "http://localhost:${OPEN_METEO_PORT}/v1/forecast?latitude=47&longitude=28&current_weather=true"]
+      interval: ${HEALTH_CHECK_INTERVAL}
+      timeout: ${HEALTH_CHECK_TIMEOUT}
+      retries: ${HEALTH_CHECK_RETRIES}
     ports:
-      - "0.0.0.0:8080:8080"
+      - "0.0.0.0:${OPEN_METEO_PORT}:8080"
     volumes:
       - ./open-meteo/config:/app/config
-      - ./open-meteo/data:/app/data
+      - open_meteo_data:/app/data
     networks:
       - upgrade_network
+    restart: unless-stopped
 
+  # ===========================================
+  # DATABASE SERVICES
+  # ===========================================
   postgres:
     image: postgis/postgis:15-3.3
-    container_name: upgrade_postgres
+    container_name: ${COMPOSE_PROJECT_NAME}_postgres
     environment:
       - POSTGRES_DB=${POSTGRES_DB}
       - POSTGRES_USER=${POSTGRES_USER}
@@ -26,121 +33,84 @@ services:
       - postgres_data:/var/lib/postgresql/data
       - ./database/migrations:/docker-entrypoint-initdb.d/
     ports:
-      - "0.0.0.0:5432:5432"
+      - "0.0.0.0:${POSTGRES_EXTERNAL_PORT}:5432"
     networks:
       - upgrade_network
     restart: unless-stopped
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
+      interval: ${HEALTH_CHECK_INTERVAL}
+      timeout: ${HEALTH_CHECK_TIMEOUT}
+      retries: ${HEALTH_CHECK_RETRIES}
 
   pgadmin:
-    image: dpage/pgadmin4:8.0 # registry.redhat.io/rhel8/pgadmin4:latest
-    container_name: upgrade_pgadmin
+    image: dpage/pgadmin4:8.0
+    container_name: ${COMPOSE_PROJECT_NAME}_pgadmin
     environment:
-      - PGADMIN_DEFAULT_EMAIL=admin@upgrade.com
-      - PGADMIN_DEFAULT_PASSWORD=admin123
+      - PGADMIN_DEFAULT_EMAIL=${PGADMIN_DEFAULT_EMAIL}
+      - PGADMIN_DEFAULT_PASSWORD=${PGADMIN_DEFAULT_PASSWORD}
     ports:
-      - "0.0.0.0:5050:80"
+      - "0.0.0.0:${PGADMIN_EXTERNAL_PORT}:80"
     networks:
       - upgrade_network
     depends_on:
-      - postgres
+      postgres:
+        condition: service_healthy
     restart: unless-stopped
+    volumes:
+      - pgadmin_data:/var/lib/pgadmin
 
+  # ===========================================
+  # CACHE SERVICE
+  # ===========================================
   redis:
     image: redis:7-alpine
-    container_name: upgrade_redis
-    command: redis-server --requirepass ${REDIS_PASSWORD}
+    container_name: ${COMPOSE_PROJECT_NAME}_redis
+    command: redis-server --requirepass ${REDIS_PASSWORD} --appendonly yes
     ports:
-      - "0.0.0.0:6379:6379"
+      - "0.0.0.0:${REDIS_EXTERNAL_PORT}:6379"
+    volumes:
+      - redis_data:/data
     networks:
       - upgrade_network
     restart: unless-stopped
     healthcheck:
-      test: ["CMD", "redis-cli", "--raw", "incr", "ping"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
+      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD}", "--raw", "incr", "ping"]
+      interval: ${HEALTH_CHECK_INTERVAL}
+      timeout: ${HEALTH_CHECK_TIMEOUT}
+      retries: ${HEALTH_CHECK_RETRIES}
 
+  # ===========================================
+  # OBJECT STORAGE
+  # ===========================================
   minio:
     image: minio/minio:latest
-    container_name: upgrade_minio
+    container_name: ${COMPOSE_PROJECT_NAME}_minio
     networks: [upgrade_network]
     ports:
-      - "0.0.0.0:9000:9000"
-      - "0.0.0.0:9001:9001"
+      - "0.0.0.0:${MINIO_API_PORT}:9000"
+      - "0.0.0.0:${MINIO_CONSOLE_PORT}:9001"
     environment:
       - MINIO_ROOT_USER=${MINIO_ROOT_USER}
       - MINIO_ROOT_PASSWORD=${MINIO_ROOT_PASSWORD}
     command: server /data --console-address ":9001"
     volumes:
-      - ./data/minio:/data
+      - minio_data:/data
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-
-  airflow-webserver:
-    image: apache/airflow:2.7.3-python3.11
-    container_name: upgrade_airflow_webserver
-    command: webserver
-    environment:
-      - AIRFLOW_UID=${AIRFLOW_UID}
-      - AIRFLOW__CORE__EXECUTOR=${AIRFLOW__CORE__EXECUTOR}
-      - AIRFLOW__DATABASE__SQL_ALCHEMY_CONN=${AIRFLOW__DATABASE__SQL_ALCHEMY_CONN}
-      - AIRFLOW__CORE__DAGS_ARE_PAUSED_AT_CREATION=${AIRFLOW__CORE__DAGS_ARE_PAUSED_AT_CREATION}
-      - AIRFLOW__CORE__LOAD_EXAMPLES=${AIRFLOW__CORE__LOAD_EXAMPLES}
-      - AIRFLOW__WEBSERVER__EXPOSE_CONFIG=${AIRFLOW__WEBSERVER__EXPOSE_CONFIG}
-    volumes:
-      - ../../airflow/dags:/opt/airflow/dags
-      - ../../airflow/plugins:/opt/airflow/plugins
-      - ../../airflow/config:/opt/airflow/config
-      - airflow_logs:/opt/airflow/logs
-    ports:
-      - "0.0.0.0:8081:8080"
-    networks:
-      - upgrade_network
-    depends_on:
-      postgres:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
-    restart: unless-stopped
-    healthcheck:
-      test: ["CMD", "curl", "--fail", "http://localhost:8080/health"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-
-  airflow-scheduler:
-    image: apache/airflow:2.7.3-python3.11
-    container_name: upgrade_airflow_scheduler
-    command: scheduler
-    environment:
-      - AIRFLOW_UID=${AIRFLOW_UID}
-      - AIRFLOW__CORE__EXECUTOR=${AIRFLOW__CORE__EXECUTOR}
-      - AIRFLOW__DATABASE__SQL_ALCHEMY_CONN=${AIRFLOW__DATABASE__SQL_ALCHEMY_CONN}
-    volumes:
-      - ../../airflow/dags:/opt/airflow/dags
-      - ../../airflow/plugins:/opt/airflow/plugins
-      - ../../airflow/config:/opt/airflow/config
-      - airflow_logs:/opt/airflow/logs
-    networks:
-      - upgrade_network
-    depends_on:
-      postgres:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
+      interval: ${HEALTH_CHECK_INTERVAL}
+      timeout: ${HEALTH_CHECK_TIMEOUT}
+      retries: ${HEALTH_CHECK_RETRIES}
     restart: unless-stopped
 
+
+
+  # ===========================================
+  # WORKFLOW ORCHESTRATION - AIRFLOW
+  # ===========================================
   airflow-init:
     image: apache/airflow:2.7.3-python3.11
-    container_name: upgrade_airflow_init
+    container_name: ${COMPOSE_PROJECT_NAME}_airflow_init
     entrypoint: /bin/bash
     command:
       - -c
@@ -161,20 +131,20 @@ services:
         
         echo "Creating admin user..."
         /entrypoint airflow users create \
-          --username admin \
+          --username ${_AIRFLOW_WWW_USER_USERNAME} \
           --firstname Admin \
           --lastname User \
           --role Admin \
-          --email admin@upgrade.com \
-          --password admin123
+          --email ${PGADMIN_DEFAULT_EMAIL} \
+          --password ${_AIRFLOW_WWW_USER_PASSWORD}
     environment:
       - AIRFLOW_UID=${AIRFLOW_UID}
       - AIRFLOW__CORE__EXECUTOR=${AIRFLOW__CORE__EXECUTOR}
       - AIRFLOW__DATABASE__SQL_ALCHEMY_CONN=${AIRFLOW__DATABASE__SQL_ALCHEMY_CONN}
-      - _AIRFLOW_DB_MIGRATE=true
-      - _AIRFLOW_WWW_USER_CREATE=true
-      - _AIRFLOW_WWW_USER_USERNAME=admin
-      - _AIRFLOW_WWW_USER_PASSWORD=admin123
+      - _AIRFLOW_DB_MIGRATE=${_AIRFLOW_DB_MIGRATE}
+      - _AIRFLOW_WWW_USER_CREATE=${_AIRFLOW_WWW_USER_CREATE}
+      - _AIRFLOW_WWW_USER_USERNAME=${_AIRFLOW_WWW_USER_USERNAME}
+      - _AIRFLOW_WWW_USER_PASSWORD=${_AIRFLOW_WWW_USER_PASSWORD}
     volumes:
       - airflow_logs:/opt/airflow/logs
       - ./airflow/dags:/opt/airflow/dags
@@ -188,98 +158,174 @@ services:
     restart: "no"
     user: "0:0"
 
-  zookeeper:
-    image: confluentinc/cp-zookeeper:7.4.0
-    container_name: upgrade_zookeeper
-    healthcheck:
-      test: ["CMD", "bash", "-c", "echo 'ruok' | nc localhost 2181"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
+  airflow-webserver:
+    image: apache/airflow:2.7.3-python3.11
+    container_name: ${COMPOSE_PROJECT_NAME}_airflow_webserver
+    command: webserver
     environment:
-      ZOOKEEPER_CLIENT_PORT: 2181
-      ZOOKEEPER_TICK_TIME: 2000
+      - AIRFLOW_UID=${AIRFLOW_UID}
+      - AIRFLOW__CORE__EXECUTOR=${AIRFLOW__CORE__EXECUTOR}
+      - AIRFLOW__DATABASE__SQL_ALCHEMY_CONN=${AIRFLOW__DATABASE__SQL_ALCHEMY_CONN}
+      - AIRFLOW__CORE__DAGS_ARE_PAUSED_AT_CREATION=${AIRFLOW__CORE__DAGS_ARE_PAUSED_AT_CREATION}
+      - AIRFLOW__CORE__LOAD_EXAMPLES=${AIRFLOW__CORE__LOAD_EXAMPLES}
+      - AIRFLOW__WEBSERVER__EXPOSE_CONFIG=${AIRFLOW__WEBSERVER__EXPOSE_CONFIG}
+      - AIRFLOW__WEBSERVER__BASE_URL=${AIRFLOW__WEBSERVER__BASE_URL}
+      - AIRFLOW__API__AUTH_BACKEND=${AIRFLOW__API__AUTH_BACKEND}
     volumes:
-      - zookeeper_data:/var/lib/zookeeper/data
+      - ./airflow/dags:/opt/airflow/dags
+      - ./airflow/plugins:/opt/airflow/plugins
+      - ./airflow/config:/opt/airflow/config
+      - airflow_logs:/opt/airflow/logs
+    ports:
+      - "0.0.0.0:${AIRFLOW_WEBSERVER_PORT}:8080"
     networks:
       - upgrade_network
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      airflow-init:
+        condition: service_completed_successfully
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "http://localhost:8080/health"]
+      interval: ${HEALTH_CHECK_INTERVAL}
+      timeout: ${HEALTH_CHECK_TIMEOUT}
+      retries: ${HEALTH_CHECK_RETRIES}
+      start_period: ${HEALTH_CHECK_START_PERIOD}
+
+  airflow-scheduler:
+    image: apache/airflow:2.7.3-python3.11
+    container_name: ${COMPOSE_PROJECT_NAME}_airflow_scheduler
+    command: scheduler
+    environment:
+      - AIRFLOW_UID=${AIRFLOW_UID}
+      - AIRFLOW__CORE__EXECUTOR=${AIRFLOW__CORE__EXECUTOR}
+      - AIRFLOW__DATABASE__SQL_ALCHEMY_CONN=${AIRFLOW__DATABASE__SQL_ALCHEMY_CONN}
+    volumes:
+      - ./airflow/dags:/opt/airflow/dags
+      - ./airflow/plugins:/opt/airflow/plugins
+      - ./airflow/config:/opt/airflow/config
+      - airflow_logs:/opt/airflow/logs
+    networks:
+      - upgrade_network
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      airflow-init:
+        condition: service_completed_successfully
+    restart: unless-stopped
+
+  # ===========================================
+  # MESSAGE STREAMING - KAFKA
+  # ===========================================
+  zookeeper:
+    image: confluentinc/cp-zookeeper:7.4.0
+    container_name: ${COMPOSE_PROJECT_NAME}_zookeeper
+    healthcheck:
+      test: ["CMD", "bash", "-c", "echo 'ruok' | nc localhost ${ZOOKEEPER_CLIENT_PORT}"]
+      interval: ${HEALTH_CHECK_INTERVAL}
+      timeout: ${HEALTH_CHECK_TIMEOUT}
+      retries: ${HEALTH_CHECK_RETRIES}
+    environment:
+      ZOOKEEPER_CLIENT_PORT: ${ZOOKEEPER_CLIENT_PORT}
+      ZOOKEEPER_TICK_TIME: ${ZOOKEEPER_TICK_TIME}
+    volumes:
+      - zookeeper_data:/var/lib/zookeeper/data
+      - zookeeper_logs:/var/lib/zookeeper/log
+    networks:
+      - upgrade_network
+    restart: unless-stopped
 
   kafka:
     image: confluentinc/cp-kafka:7.4.0
-    container_name: upgrade_kafka
+    container_name: ${COMPOSE_PROJECT_NAME}_kafka
     healthcheck:
       test: ["CMD-SHELL", "kafka-topics --bootstrap-server localhost:9092 --list"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
+      interval: ${HEALTH_CHECK_INTERVAL}
+      timeout: ${HEALTH_CHECK_TIMEOUT}
+      retries: ${HEALTH_CHECK_RETRIES}
     depends_on:
-      - zookeeper
+      zookeeper:
+        condition: service_healthy
     ports:
-      - "0.0.0.0:9092:9092"
+      - "0.0.0.0:${KAFKA_EXTERNAL_PORT}:9092"
     environment:
-      KAFKA_BROKER_ID: 1
-      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
-      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
-      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:29092,PLAINTEXT_HOST://localhost:9092
-      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
-      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
-      KAFKA_LOG_RETENTION_HOURS: 168
+      KAFKA_BROKER_ID: ${KAFKA_BROKER_ID}
+      KAFKA_ZOOKEEPER_CONNECT: ${KAFKA_ZOOKEEPER_CONNECT}
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: ${KAFKA_LISTENER_SECURITY_PROTOCOL_MAP}
+      KAFKA_ADVERTISED_LISTENERS: ${KAFKA_ADVERTISED_LISTENERS}
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: ${KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR}
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: ${KAFKA_AUTO_CREATE_TOPICS_ENABLE}
+      KAFKA_LOG_RETENTION_HOURS: ${KAFKA_LOG_RETENTION_HOURS}
     volumes:
       - kafka_data:/var/lib/kafka/data
     networks:
       - upgrade_network
+    restart: unless-stopped
 
   kafka-ui:
     image: provectuslabs/kafka-ui:latest
-    container_name: upgrade_kafka_ui
+    container_name: ${COMPOSE_PROJECT_NAME}_kafka_ui
     ports:
-      - "0.0.0.0:8082:8080"
+      - "0.0.0.0:${KAFKA_UI_PORT}:8080"
     environment:
-      KAFKA_CLUSTERS_0_NAME: local
-      KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: kafka:29092
+      KAFKA_CLUSTERS_0_NAME: ${KAFKA_CLUSTERS_0_NAME}
+      KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: ${KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS}
     networks:
       - upgrade_network
     depends_on:
-      - kafka
+      kafka:
+        condition: service_healthy
+    restart: unless-stopped
 
+  # ===========================================
+  # DATA PROCESSING SERVICES
+  # ===========================================
   weather-producer:
     build:
       context: ./kafka/producer
       dockerfile: Dockerfile
-    container_name: upgrade_weather_producer
+    container_name: ${COMPOSE_PROJECT_NAME}_weather_producer
     healthcheck:
       test: ["CMD", "pgrep", "-f", "weather_producer"]
       interval: 60s
-      timeout: 10s
-      retries: 3
+      timeout: ${HEALTH_CHECK_TIMEOUT}
+      retries: ${HEALTH_CHECK_RETRIES}
     depends_on:
-      - kafka
-      - open-meteo
-      - redis
+      kafka:
+        condition: service_healthy
+      open-meteo:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
     environment:
-      KAFKA_BOOTSTRAP_SERVERS: kafka:29092
-      # OPEN_METEO_URL: http://open-meteo:8080/v1/forecast  # Ваш локальный API
-      OPEN_METEO_URL: https://api.open-meteo.com/v1/forecast
+      KAFKA_BOOTSTRAP_SERVERS: ${KAFKA_BOOTSTRAP_SERVERS}
+      OPEN_METEO_URL: ${OPEN_METEO_URL}
+      REDIS_HOST: ${REDIS_HOST}
+      REDIS_PORT: ${REDIS_PORT}
       REDIS_PASSWORD: ${REDIS_PASSWORD}
-      COLLECTION_INTERVAL_MINUTES: 30
-      LOG_LEVEL: INFO
+      COLLECTION_INTERVAL_MINUTES: ${COLLECTION_INTERVAL_MINUTES}
+      LOG_LEVEL: ${LOG_LEVEL}
     volumes:
       - ./logs:/app/logs
     networks:
       - upgrade_network
     restart: unless-stopped
 
-  # Weather Consumer - сохраняет в PostgreSQL и MinIO
   weather-consumer:
     build:
       context: ./kafka/consumer
       dockerfile: Dockerfile
-    container_name: upgrade_weather_consumer
+    container_name: ${COMPOSE_PROJECT_NAME}_weather_consumer
     healthcheck:
       test: ["CMD", "pgrep", "-f", "weather_consumer"]
       interval: 60s
-      timeout: 10s
-      retries: 3
+      timeout: ${HEALTH_CHECK_TIMEOUT}
+      retries: ${HEALTH_CHECK_RETRIES}
     depends_on:
       kafka:
         condition: service_healthy
@@ -288,151 +334,171 @@ services:
       minio:
         condition: service_healthy
     environment:
-      KAFKA_BOOTSTRAP_SERVERS: kafka:29092
-      POSTGRES_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
-      MINIO_ENDPOINT: minio:9000
+      KAFKA_BOOTSTRAP_SERVERS: ${KAFKA_BOOTSTRAP_SERVERS}
+      POSTGRES_HOST: ${POSTGRES_HOST}
+      POSTGRES_PORT: ${POSTGRES_PORT}
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@${POSTGRES_HOST}:${POSTGRES_PORT}/${POSTGRES_DB}
+      MINIO_ENDPOINT: minio:${MINIO_API_PORT}
       MINIO_ACCESS_KEY: ${MINIO_ROOT_USER}
       MINIO_SECRET_KEY: ${MINIO_ROOT_PASSWORD}
-      MINIO_BUCKET: weather-data
-      LOG_LEVEL: INFO
+      MINIO_BUCKET: ${MINIO_BUCKET}
+      LOG_LEVEL: ${LOG_LEVEL}
     volumes:
       - ./logs:/app/logs
     networks:
       - upgrade_network
     restart: unless-stopped
 
+  # ===========================================
+  # WEB INTERFACE
+  # ===========================================
   streamlit-app:
     build:
       context: ./streamlit
       dockerfile: Dockerfile
-    container_name: upgrade_streamlit
+    container_name: ${COMPOSE_PROJECT_NAME}_streamlit
     ports:
-      - "0.0.0.0:8501:8501"
+      - "0.0.0.0:${STREAMLIT_PORT}:${STREAMLIT_SERVER_PORT}"
     volumes:
       - ./data:/data
       - ./results:/results
     environment:
-      # Исправленные переменные окружения
-      - POSTGRES_HOST=postgres
+      # Database configuration
+      - POSTGRES_HOST=${POSTGRES_HOST}
       - POSTGRES_DB=${POSTGRES_DB}
       - POSTGRES_USER=${POSTGRES_USER}
       - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
-      - POSTGRES_PORT=5432
-      - REDIS_HOST=redis
-      - REDIS_PORT=6379
-      - REDIS_PASSWORD=${REDIS_PASSWORD}  # Добавлено
+      - POSTGRES_PORT=${POSTGRES_PORT}
       
-      # Streamlit конфигурация
-      - STREAMLIT_SERVER_PORT=8501
-      - STREAMLIT_SERVER_ADDRESS=0.0.0.0
-      - STREAMLIT_SERVER_HEADLESS=true
-      - STREAMLIT_BROWSER_GATHER_USAGE_STATS=false
+      # Redis configuration
+      - REDIS_HOST=${REDIS_HOST}
+      - REDIS_PORT=${REDIS_PORT}
+      - REDIS_PASSWORD=${REDIS_PASSWORD}
+      
+      # MinIO configuration
+      - MINIO_ENDPOINT=minio:${MINIO_API_PORT}
+      - MINIO_ACCESS_KEY=${MINIO_ROOT_USER}
+      - MINIO_SECRET_KEY=${MINIO_ROOT_PASSWORD}
+      
+      # Streamlit configuration
+      - STREAMLIT_SERVER_PORT=${STREAMLIT_SERVER_PORT}
+      - STREAMLIT_SERVER_ADDRESS=${STREAMLIT_SERVER_ADDRESS}
+      - STREAMLIT_SERVER_HEADLESS=${STREAMLIT_SERVER_HEADLESS}
+      - STREAMLIT_BROWSER_GATHER_USAGE_STATS=${STREAMLIT_BROWSER_GATHER_USAGE_STATS}
+      
+      # Airflow configuration
+      - AIRFLOW_API_URL=${AIRFLOW_API_URL}
     
     networks:
       - upgrade_network
     depends_on:
       postgres:
-        condition: service_healthy  # Ждем пока Postgres будет готов
+        condition: service_healthy
       redis:
-        condition: service_healthy  # Ждем пока Redis будет готов
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+      airflow-webserver:
+        condition: service_healthy
     restart: unless-stopped
     
-    # Добавим healthcheck для Streamlit
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8501/healthz"] 
-      interval: 30s
-      timeout: 10s
-      retries: 5
-      start_period: 60s
-  
-  # nextflow-worker:
-  #   image: nextflow/nextflow:23.10.0
-  #   container_name: upgrade_nextflow_worker
-  #   restart: unless-stopped
-  #   volumes:
-  #     - ./nextflow:/pipeline:ro
-  #     - ./data:/data
-  #     - ./results:/results
-  #     - /var/run/docker.sock:/var/run/docker.sock
-  #     - nextflow_work:/work
-  #   environment:
-  #     - NXF_WORK=/work
-  #     - NXF_ASSETS=/pipeline/assets
-  #     - NXF_TEMP=/tmp
-  #     - NXF_HOME=/pipeline
+      test: ["CMD", "curl", "-f", "http://localhost:${STREAMLIT_SERVER_PORT}/healthz"] 
+      interval: ${HEALTH_CHECK_INTERVAL}
+      timeout: ${HEALTH_CHECK_TIMEOUT}
+      retries: ${HEALTH_CHECK_RETRIES}
+      start_period: ${HEALTH_CHECK_START_PERIOD}
 
-  #     # Database connection
-  #     - POSTGRES_HOST=postgres
-  #     - POSTGRES_DB=upgrade_db
-  #     - POSTGRES_USER=upgrade_user
-  #     - POSTGRES_PASSWORD=upgrade_password
-      
-  #     # MinIO connection
-  #     - MINIO_ENDPOINT=http://minio:9000
-  #     - MINIO_ACCESS_KEY=minioadmin
-  #     - MINIO_SECRET_KEY=minioadmin
-      
-  #     # Redis для job queue
-  #     - REDIS_HOST=redis
-  #     - REDIS_PORT=6379
-      
-  #     # Resource limits
-  #     - NXF_OPTS='-Xms1g -Xmx4g'
-    
-  #   working_dir: /pipeline
-  #   networks:
-  #     - upgrade_network
-  #   depends_on:
-  #     postgres:
-  #       condition: service_healthy
-  #     redis:
-  #       condition: service_started
-  #     minio:
-  #       condition: service_healthy
-  #   # Команда для job worker
-  #   command: python3 bin/nextflow_job_worker.py
-  #   healthcheck:
-  #     test: ["CMD", "python3", "bin/health_check.py"]
-  #     interval: 30s
-  #     timeout: 10s
-  #     retries: 3
+  # ===========================================
+  # MONITORING (Optional)
+  # ===========================================
+  volume-monitor:
+    image: alpine:latest
+    container_name: ${COMPOSE_PROJECT_NAME}_volume_monitor
+    command: >
+      sh -c "
+        apk add --no-cache curl &&
+        while true; do
+          echo '=== Volume Health Check at $(date) ==='
+          df -h /volumes/* 2>/dev/null || echo 'Some volumes not mounted'
+          echo '======================================='
+          sleep 300
+        done
+      "
+    volumes:
+      - postgres_data:/volumes/postgres:ro
+      - minio_data:/volumes/minio:ro
+      - redis_data:/volumes/redis:ro
+      - kafka_data:/volumes/kafka:ro
+      - zookeeper_data:/volumes/zookeeper:ro
+      - airflow_logs:/volumes/airflow_logs:ro
+    networks:
+      - upgrade_network
+    profiles: ["monitoring"]
+    restart: unless-stopped
 
-  # # Nextflow Job Scheduler (опционально - для автоматического scheduling)
-  # nextflow-scheduler:
-    # image: nextflow/nextflow:23.10.0
-    # container_name: nextflow-scheduler
-    # restart: unless-stopped
-    # profiles: ["scheduler"]  # Запускается только при необходимости
-    # volumes:
-    #   - ./nextflow-pipeline:/pipeline:ro
-    #   - ./data:/data:ro
-    # environment:
-    #   - POSTGRES_HOST=postgres
-    #   - POSTGRES_DB=upgrade_db  
-    #   - POSTGRES_USER=upgrade_user
-    #   - POSTGRES_PASSWORD=upgrade_password
-    #   - REDIS_HOST=redis
-    # working_dir: /pipeline
-    # networks:
-    #   - upgrade-network
-    # depends_on:
-    #   - postgres
-    #   - redis
-    # command: python3 bin/schedule_genomics_jobs.py
+  # ===========================================
+  # BACKUP SERVICE (Optional)
+  # ===========================================
+  backup-service:
+    image: alpine:latest
+    container_name: ${COMPOSE_PROJECT_NAME}_backup
+    command: >
+      sh -c "
+        apk add --no-cache postgresql-client curl &&
+        while true; do
+          echo 'Starting backup at $(date)'
+          
+          # Backup PostgreSQL
+          PGPASSWORD=${POSTGRES_PASSWORD} pg_dump -h postgres -U ${POSTGRES_USER} ${POSTGRES_DB} > /backups/postgres_$(date +%Y%m%d_%H%M%S).sql
+          
+          # Keep only last 7 days of backups
+          find /backups -name '*.sql' -mtime +7 -delete
+          
+          echo 'Backup completed at $(date)'
+          sleep 86400  # 24 hours
+        done
+      "
+    volumes:
+      - ./backups:/backups
+    networks:
+      - upgrade_network
+    depends_on:
+      postgres:
+        condition: service_healthy
+    profiles: ["backup"]
+    restart: unless-stopped
 
+# ===========================================
+# NETWORKS
+# ===========================================
 networks:
   upgrade_network:
     driver: bridge
-    name: upgrade_network
+    name: ${COMPOSE_PROJECT_NAME}_network
 
+# ===========================================
+# PERSISTENT VOLUMES
+# ===========================================
 volumes:
   postgres_data:
-    name: upgrade_postgres_data
+    name: ${COMPOSE_PROJECT_NAME}_postgres_data
+  pgadmin_data:
+    name: ${COMPOSE_PROJECT_NAME}_pgadmin_data
+  redis_data:
+    name: ${COMPOSE_PROJECT_NAME}_redis_data
   minio_data:
-    name: upgrade_minio_data
+    name: ${COMPOSE_PROJECT_NAME}_minio_data
   airflow_logs:
-    name: upgrade_airflow_logs
+    name: ${COMPOSE_PROJECT_NAME}_airflow_logs
   kafka_data:
-    name: upgrade_kafka_data
+    name: ${COMPOSE_PROJECT_NAME}_kafka_data
   zookeeper_data:
-    name: upgrade_zookeeper_data
+    name: ${COMPOSE_PROJECT_NAME}_zookeeper_data
+  zookeeper_logs:
+    name: ${COMPOSE_PROJECT_NAME}_zookeeper_logs
+  open_meteo_data:
+    name: ${COMPOSE_PROJECT_NAME}_open_meteo_data
