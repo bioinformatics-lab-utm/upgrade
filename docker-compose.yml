@@ -104,6 +104,31 @@ services:
     restart: unless-stopped
 
 
+  # ===========================================
+  # NEXTFLOW SERVICE (Optional)
+  # ===========================================
+  # nextflow-runner:
+  #   image: nextflow/nextflow:23.10.0
+  #   container_name: ${COMPOSE_PROJECT_NAME}_nextflow_runner
+  #   command: ["tail", "-f", "/dev/null"]
+  #   volumes:
+  #     - ./nextflow:/workspace
+  #     - ./data:/data
+  #     - ./results:/results
+  #     - /var/run/docker.sock:/var/run/docker.sock
+  #     - /tmp:/tmp
+  #     - ./nextflow/work:/workspace/work
+  #   working_dir: /workspace
+  #   networks:
+  #     - upgrade_network
+  #   restart: unless-stopped
+  #   healthcheck:
+  #     test: ["CMD", "nextflow", "-version"]
+  #     interval: 30s
+  #     timeout: 10s
+  #     retries: 3
+  #     start_period: 10s
+
 
   # ===========================================
   # WORKFLOW ORCHESTRATION - AIRFLOW
@@ -171,6 +196,7 @@ services:
       - AIRFLOW__WEBSERVER__EXPOSE_CONFIG=${AIRFLOW__WEBSERVER__EXPOSE_CONFIG}
       - AIRFLOW__WEBSERVER__BASE_URL=${AIRFLOW__WEBSERVER__BASE_URL}
       - AIRFLOW__API__AUTH_BACKEND=${AIRFLOW__API__AUTH_BACKEND}
+      # - AIRFLOW_CONN_POSTGRES_DEFAULT=postgresql://upgrade:upgrade123@postgres:5432/upgrade_db
     volumes:
       - ./airflow/dags:/opt/airflow/dags
       - ./airflow/plugins:/opt/airflow/plugins
@@ -199,15 +225,18 @@ services:
     image: apache/airflow:2.7.3-python3.11
     container_name: ${COMPOSE_PROJECT_NAME}_airflow_scheduler
     command: scheduler
+    user: root
     environment:
       - AIRFLOW_UID=${AIRFLOW_UID}
       - AIRFLOW__CORE__EXECUTOR=${AIRFLOW__CORE__EXECUTOR}
       - AIRFLOW__DATABASE__SQL_ALCHEMY_CONN=${AIRFLOW__DATABASE__SQL_ALCHEMY_CONN}
+      # - AIRFLOW_CONN_POSTGRES_DEFAULT=postgresql://upgrade:upgrade123@postgres:5432/upgrade_db
     volumes:
       - ./airflow/dags:/opt/airflow/dags
       - ./airflow/plugins:/opt/airflow/plugins
       - ./airflow/config:/opt/airflow/config
       - airflow_logs:/opt/airflow/logs
+      - /var/run/docker.sock:/var/run/docker.sock
     networks:
       - upgrade_network
     depends_on:
@@ -215,13 +244,12 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+      # nextflow-runner:  # Добавить эту зависимость
+      #   condition: service_healthy
       airflow-init:
         condition: service_completed_successfully
     restart: unless-stopped
 
-  # ===========================================
-  # MESSAGE STREAMING - KAFKA
-  # ===========================================
   zookeeper:
     image: confluentinc/cp-zookeeper:7.4.0
     container_name: ${COMPOSE_PROJECT_NAME}_zookeeper
@@ -412,65 +440,7 @@ services:
       retries: ${HEALTH_CHECK_RETRIES}
       start_period: ${HEALTH_CHECK_START_PERIOD}
 
-  # ===========================================
-  # MONITORING (Optional)
-  # ===========================================
-  volume-monitor:
-    image: alpine:latest
-    container_name: ${COMPOSE_PROJECT_NAME}_volume_monitor
-    command: >
-      sh -c "
-        apk add --no-cache curl &&
-        while true; do
-          echo '=== Volume Health Check at $(date) ==='
-          df -h /volumes/* 2>/dev/null || echo 'Some volumes not mounted'
-          echo '======================================='
-          sleep 300
-        done
-      "
-    volumes:
-      - postgres_data:/volumes/postgres:ro
-      - minio_data:/volumes/minio:ro
-      - redis_data:/volumes/redis:ro
-      - kafka_data:/volumes/kafka:ro
-      - zookeeper_data:/volumes/zookeeper:ro
-      - airflow_logs:/volumes/airflow_logs:ro
-    networks:
-      - upgrade_network
-    profiles: ["monitoring"]
-    restart: unless-stopped
-
-  # ===========================================
-  # BACKUP SERVICE (Optional)
-  # ===========================================
-  backup-service:
-    image: alpine:latest
-    container_name: ${COMPOSE_PROJECT_NAME}_backup
-    command: >
-      sh -c "
-        apk add --no-cache postgresql-client curl &&
-        while true; do
-          echo 'Starting backup at $(date)'
-          
-          # Backup PostgreSQL
-          PGPASSWORD=${POSTGRES_PASSWORD} pg_dump -h postgres -U ${POSTGRES_USER} ${POSTGRES_DB} > /backups/postgres_$(date +%Y%m%d_%H%M%S).sql
-          
-          # Keep only last 7 days of backups
-          find /backups -name '*.sql' -mtime +7 -delete
-          
-          echo 'Backup completed at $(date)'
-          sleep 86400  # 24 hours
-        done
-      "
-    volumes:
-      - ./backups:/backups
-    networks:
-      - upgrade_network
-    depends_on:
-      postgres:
-        condition: service_healthy
-    profiles: ["backup"]
-    restart: unless-stopped
+  
 
 # ===========================================
 # NETWORKS
