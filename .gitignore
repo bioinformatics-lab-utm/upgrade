@@ -349,6 +349,11 @@ qc_reports/
 fastqc_reports/
 nanoplot_reports/
 
+# Nextflow results and filtered data
+nextflow/results/
+nextflow/results_final/
+*_filtlong_log.txt
+
 # Large sequencing files in specific directories
 raw_data/
 processed_data/

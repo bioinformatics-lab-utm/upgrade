@@ -1,6 +1,7 @@
 process CHECKM {
     tag "$sample_id"
     label 'process_high'
+    publishDir "${params.outdir}/05_quality/${binner_name}", mode: 'copy'
     
     container 'quay.io/biocontainers/checkm-genome:1.2.2--pyhdfd78af_1'
 
