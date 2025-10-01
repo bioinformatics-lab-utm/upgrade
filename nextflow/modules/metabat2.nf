@@ -1,6 +1,7 @@
 process METABAT2 {
     tag "$sample_id"
     label 'process_medium'
+    publishDir "${params.outdir}/04_binning/metabat2", mode: 'copy'
     
     container 'metabat/metabat:2.15'
 

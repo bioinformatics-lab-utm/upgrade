@@ -96,242 +96,91 @@ include { CHECKM } from './modules/checkm.nf'
 include { CHECKM as CHECKM_METABAT2 } from './modules/checkm.nf'
 include { CHECKM as CHECKM_CONCOCT } from './modules/checkm.nf'
 
-// workflow {
-    
-//     // Create input channel
-//     ont_reads_ch = Channel
-//         .fromPath("${params.input_dir}/*.fastq.gz")
-//         .map { file ->
-//             def sample_id = file.getBaseName().replaceAll(/\.fastq\.gz$/, '')
-//             println "Found ONT sample: ${sample_id} with file: ${file}"
-//             return [sample_id, file]
-//         }
-    
-//     // Check if we have any input files
-//     ont_reads_ch.ifEmpty { 
-//         error "No FASTQ files found in ${params.input_dir}. Please check the input directory." 
-//     }
-    
-//     // Stage 1: Quality Control with NanoPlot
-//     NANOPLOT(ont_reads_ch)
-    
-//     // Stage 2: Read Filtering with Filtlong
-//     FILTLONG(ont_reads_ch)
-    
-//     // Stage 3: De novo Assembly with Flye (using filtered reads)
-//     FLYE(FILTLONG.out.reads, params.flye_mode)
-    
-//     // Stage 4: Genome Binning with MetaBAT2
-//     METABAT2(FLYE.out.fasta, FILTLONG.out.reads)
-    
-//     // Stage 5: Genome Binning with CONCOCT
-//     CONCOCT(FLYE.out.fasta, FILTLONG.out.reads)
-    
-//     // Stage 6: Quality Assessment with CheckM
-//     // Run CheckM on MetaBAT2 bins
-//     CHECKM_METABAT2(METABAT2.out.bins, "metabat2")
-    
-//     // Run CheckM on CONCOCT bins  
-//     CHECKM_CONCOCT(CONCOCT.out.bins, "concoct")
-    
-//     // Print completion message
-//     // Print completion message
-//     // Print completion message
-//     // Print completion message
-//     workflow.onComplete {
-//         def success = workflow?.success ?: false
-//         def exitStatus = workflow?.exitStatus ?: 0
-//         def failed = workflow?.stats?.failedCount ?: 0
-//         def outdir = params?.outdir ?: 'results'
-        
-//         // Считаем успешным если нет failed процессов
-//         if (failed == 0) {
-//             log.info """
-//             Pipeline completed successfully!
-            
-//             Results structure:
-//             ${outdir}/
-//             ├── 01_QC/nanoplot/          # Quality control reports
-//             ├── 02_filtered/             # Filtered FASTQ files and logs
-//             ├── 03_assembly/             # Flye assembly results
-//             ├── 04_binning/metabat2/     # MetaBAT2 binning results
-//             ├── 04_binning/concoct/      # CONCOCT binning results
-//             ├── 05_quality/metabat2/     # CheckM quality assessment (MetaBAT2 bins)
-//             └── 05_quality/concoct/      # CheckM quality assessment (CONCOCT bins)
-            
-//             Assembly outputs:
-//             - ${outdir}/03_assembly/*.fasta.gz    # Final assembly
-//             - ${outdir}/03_assembly/*.gfa.gz      # Assembly graph
-//             - ${outdir}/03_assembly/*.info.txt    # Assembly statistics
-//             - ${outdir}/03_assembly/*.flye.log    # Assembly log
-            
-//             Binning outputs:
-//             - ${outdir}/04_binning/metabat2/*_bins/    # MetaBAT2 bins
-//             - ${outdir}/04_binning/concoct/*_bins/     # CONCOCT bins
-            
-//             Quality assessment outputs:
-//             - ${outdir}/05_quality/*/checkm_summary.tsv    # Bin quality summaries
-//             - ${outdir}/05_quality/*/checkm_results/       # Detailed CheckM results
-            
-//             Next steps:
-//             - Review QC reports in ${outdir}/01_QC/nanoplot/
-//             - Check filtering logs in ${outdir}/02_filtered/
-//             - Examine assembly statistics in ${outdir}/03_assembly/*.info.txt
-//             - Analyze bin quality in ${outdir}/05_quality/*/checkm_summary.tsv
-//             - High-quality bins (>90% complete, <5% contamination) are ready for further analysis
-//             """
-//         } else {
-//             log.error "Pipeline failed. Check the error messages above."
-//         }
-//     }
-// }
-
 workflow {
     
-    // Create input channel
+    // Create input channel (search for FASTQ files in directory and subdirectories)
     ont_reads_ch = Channel
-        .fromPath("${params.input_dir}/*.fastq.gz")
+        .fromPath(["${params.input_dir}/*.fastq.gz", "${params.input_dir}/**/*.fastq.gz"])
         .map { file ->
             def sample_id = file.getBaseName().replaceAll(/\.fastq\.gz$/, '')
-            println "✓ Found ONT sample: ${sample_id} with file: ${file}"
-            println "  File size: ${file.size() / (1024*1024)} MB"
+            println "Found ONT sample: ${sample_id} with file: ${file}"
             return [sample_id, file]
         }
-    
-    ont_reads_ch.ifEmpty { 
-        error "No FASTQ files found in ${params.input_dir}" 
+    // Check if we have any input files
+    ont_reads_ch.ifEmpty {
+        error "No FASTQ files found in ${params.input_dir}. Please check the input directory."
     }
     
     // Stage 1: Quality Control with NanoPlot
-    println "\n=== STAGE 1: Starting NanoPlot QC ==="
     NANOPLOT(ont_reads_ch)
     
     // Stage 2: Read Filtering with Filtlong
-    println "\n=== STAGE 2: Starting Filtlong filtering ==="
     FILTLONG(ont_reads_ch)
     
-    // Stage 3: Assembly
-    println "\n=== STAGE 3: Starting Flye assembly ==="
+    // Stage 3: De novo Assembly with Flye (using filtered reads)
     FLYE(FILTLONG.out.reads, params.flye_mode)
     
-    // Stage 4: MetaBAT2 Binning
-    println "\n=== STAGE 4: Starting MetaBAT2 binning ==="
+    // Stage 4: Genome Binning with MetaBAT2
     METABAT2(FLYE.out.fasta, FILTLONG.out.reads)
     
-    // Stage 5: CONCOCT Binning
-    println "\n=== STAGE 5: Starting CONCOCT binning ==="
+    // Stage 5: Genome Binning with CONCOCT
     CONCOCT(FLYE.out.fasta, FILTLONG.out.reads)
     
-    // Stage 6: Quality Assessment
-    println "\n=== STAGE 6: Starting CheckM quality assessment ==="
+    // Stage 6: Quality Assessment with CheckM
+    // Run CheckM on MetaBAT2 bins
     CHECKM_METABAT2(METABAT2.out.bins, "metabat2")
+    
+    // Run CheckM on CONCOCT bins  
     CHECKM_CONCOCT(CONCOCT.out.bins, "concoct")
+    
+    // Print completion message
+    // Print completion message
+    // Print completion message
+    // Print completion message
+    workflow.onComplete {
+        def success = workflow?.success ?: false
+        def exitStatus = workflow?.exitStatus ?: 0
+        def failed = workflow?.stats?.failedCount ?: 0
+        def outdir = params?.outdir ?: 'results'
+        
+        // Считаем успешным если нет failed процессов
+        if (failed == 0) {
+            log.info """
+            Pipeline completed successfully!
+            
+            Results structure:
+            ${outdir}/
+            ├── 01_QC/nanoplot/          # Quality control reports
+            ├── 02_filtered/             # Filtered FASTQ files and logs
+            ├── 03_assembly/             # Flye assembly results
+            ├── 04_binning/metabat2/     # MetaBAT2 binning results
+            ├── 04_binning/concoct/      # CONCOCT binning results
+            ├── 05_quality/metabat2/     # CheckM quality assessment (MetaBAT2 bins)
+            └── 05_quality/concoct/      # CheckM quality assessment (CONCOCT bins)
+            
+            Assembly outputs:
+            - ${outdir}/03_assembly/*.fasta.gz    # Final assembly
+            - ${outdir}/03_assembly/*.gfa.gz      # Assembly graph
+            - ${outdir}/03_assembly/*.info.txt    # Assembly statistics
+            - ${outdir}/03_assembly/*.flye.log    # Assembly log
+            
+            Binning outputs:
+            - ${outdir}/04_binning/metabat2/*_bins/    # MetaBAT2 bins
+            - ${outdir}/04_binning/concoct/*_bins/     # CONCOCT bins
+            
+            Quality assessment outputs:
+            - ${outdir}/05_quality/*/checkm_summary.tsv    # Bin quality summaries
+            - ${outdir}/05_quality/*/checkm_results/       # Detailed CheckM results
+            
+            Next steps:
+            - Review QC reports in ${outdir}/01_QC/nanoplot/
+            - Check filtering logs in ${outdir}/02_filtered/
+            - Examine assembly statistics in ${outdir}/03_assembly/*.info.txt
+            - Analyze bin quality in ${outdir}/05_quality/*/checkm_summary.tsv
+            - High-quality bins (>90% complete, <5% contamination) are ready for further analysis
+            """
+        } else {
+            log.error "Pipeline failed. Check the error messages above."
+        }
+    }
 }
-
-// #!/usr/bin/env nextflow
-
-// nextflow.enable.dsl = 2
-
-// // Print help message
-// if (params.help) {
-//     log.info """
-//     UPGRADE - Environmental Genomic Surveillance Pipeline
-//     ================================================
-    
-//     Usage:
-//     nextflow run main.nf [options]
-    
-//     Input options:
-//     --input_file_path  Path to single FASTQ file (local or s3://)
-//     --input_dir        Path to directory containing FASTQ files (default: test_data/ont_data)
-//     --sample_id        Sample identifier (auto-detected if not provided)
-//     --outdir           Output directory (default: results)
-    
-//     QC options:
-//     --nanoplot_format  Format for NanoPlot outputs (default: png)
-    
-//     Filtering options:
-//     --filtlong_min_length    Minimum read length in bp (default: 1000)
-//     --filtlong_keep_percent  Percentage of best reads to keep (default: 90)
-//     --filtlong_min_quality   Minimum mean quality score (default: 10)
-    
-//     Resource options:
-//     --threads  Number of threads (default: 30)
-//     --memory   Memory allocation (default: 60.GB)
-    
-//     Example:
-//     nextflow run main.nf -profile docker --input_dir test_data/ont_data
-//     nextflow run main.nf -profile docker --input_file_path s3://raw/sample.fastq.gz --sample_id sample1
-//     """
-//     exit 0
-// }
-
-// // Print pipeline info
-// log.info """
-//     UPGRADE PIPELINE - Environmental Genomic Surveillance
-//     =====================================================
-//     outdir                 : ${params.outdir}
-//     threads                : ${params.threads}
-    
-//     Filtlong parameters:
-//     min_length             : ${params.filtlong_min_length} bp
-//     keep_percent           : ${params.filtlong_keep_percent}%
-//     min_quality            : ${params.filtlong_min_quality}
-// """
-
-// // Import modules
-// include { NANOPLOT } from './modules/nanoplot.nf'
-// include { FILTLONG } from './modules/filtlong.nf'
-
-// workflow {
-    
-//     // Determine input source
-//     if (params.input_file_path) {
-//         // Single file input (S3 or local)
-//         ont_reads_ch = Channel
-//             .fromPath(params.input_file_path)
-//             .map { file ->
-//                 def sample_id = params.sample_id ?: file.getBaseName().replaceAll(/\.fastq(\.gz)?$/, '')
-//                 return [sample_id, file]
-//             }
-//     } else if (params.input_dir) {
-//         // Directory input
-//         ont_reads_ch = Channel
-//             .fromPath("${params.input_dir}/*.fastq.gz")
-//             .map { file ->
-//                 def sample_id = file.getBaseName().replaceAll(/\.fastq(\.gz)?$/, '')
-//                 return [sample_id, file]
-//             }
-//     } else {
-//         error "Please specify either --input_file_path or --input_dir"
-//     }
-    
-//     // Check if we have any input files
-//     ont_reads_ch.ifEmpty { 
-//         error "No FASTQ files found"
-//     }
-    
-//     // Stage 1: Quality Control with NanoPlot
-//     NANOPLOT(ont_reads_ch)
-    
-//     // Stage 2: Read Filtering with Filtlong
-//     FILTLONG(ont_reads_ch)
-    
-//     // Print completion message
-//     // workflow.onComplete {
-//     //     if (workflow.stats.failedCount == 0) {
-//     //         log.info """
-//     //         Pipeline completed successfully!
-//     //         Results: ${params.outdir}
-//     //         """
-//     //     }
-//     // }
-
-//     // workflow.onComplete {
-//     // if (workflow.success) {  // Используйте workflow.success вместо проверки failedCount
-//     //     log.info """
-//     //     Pipeline completed successfully!
-//     //     Results: ${params.outdir}
-//     //     """
-//     // }
-// }

@@ -1,6 +1,7 @@
 process CONCOCT {
     tag "$sample_id"
     label 'process_medium'
+    publishDir "${params.outdir}/04_binning/concoct", mode: 'copy'
     
     container 'quay.io/biocontainers/concoct:1.1.0--py27h88e4a8a_0'
 

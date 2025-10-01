@@ -1,6 +1,7 @@
 process FLYE {
     tag "$sample_id"
     label 'process_high'
+    publishDir "${params.outdir}/03_assembly", mode: 'copy'
     
     container 'staphb/flye:2.9.2'
 
