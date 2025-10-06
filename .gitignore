@@ -359,6 +359,16 @@ raw_data/
 processed_data/
 sequencing_runs/
 
+# SRA (Sequence Read Archive) files
+*.sra
+*.sra.tmp
+SRR*/
+ERR*/
+DRR*/
+*SRR*.sra
+*ERR*.sra
+*DRR*.sra
+
 # ============================================
 # FRONTEND (React) - UP-GEN Platform
 # ============================================
