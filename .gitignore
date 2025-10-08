@@ -412,3 +412,7 @@ api/*.sqlite*
 backend/user_data/
 api/user_data/
 genomic_uploads/
+
+kraken2_db/
+merged_kraken_results/
+merge_metabat_kraken_results.py

@@ -42,6 +42,9 @@ if (params.help) {
     Quality assessment options:
     --checkm_extension              File extension for CheckM (default: fa)
     
+    Taxonomic classification options:
+    --kraken2_db                    Path to Kraken2 database (default: kraken2_db)
+    
     Resource options:
     --threads      Number of threads (default: 30)
     --memory       Memory allocation (default: 8 GB)
@@ -84,6 +87,8 @@ log.info """
     CONCOCT chunk size     : ${params.concoct_chunk_size ?: 10000} bp
     
     CheckM extension       : ${params.checkm_extension ?: 'fa'}
+    
+    Kraken2 database       : ${params.kraken2_db ?: 'kraken2_db'}
 """
 
 // Import modules
@@ -95,6 +100,9 @@ include { CONCOCT } from './modules/concoct.nf'
 include { CHECKM } from './modules/checkm.nf'
 include { CHECKM as CHECKM_METABAT2 } from './modules/checkm.nf'
 include { CHECKM as CHECKM_CONCOCT } from './modules/checkm.nf'
+include { KRAKEN2 } from './modules/kraken2.nf'
+include { KRAKEN2 as KRAKEN2_METABAT2 } from './modules/kraken2.nf'
+include { KRAKEN2 as KRAKEN2_CONCOCT } from './modules/kraken2.nf'
 
 workflow {
     
@@ -133,6 +141,13 @@ workflow {
     // Run CheckM on CONCOCT bins  
     CHECKM_CONCOCT(CONCOCT.out.bins, "concoct")
     
+    // Stage 7: Taxonomic Classification with Kraken2
+    // Run Kraken2 on MetaBAT2 bins after CheckM
+    KRAKEN2_METABAT2(METABAT2.out.bins, "metabat2")
+    
+    // Run Kraken2 on CONCOCT bins after CheckM
+    KRAKEN2_CONCOCT(CONCOCT.out.bins, "concoct")
+    
     // Print completion message
     // Print completion message
     // Print completion message
@@ -156,7 +171,9 @@ workflow {
             ├── 04_binning/metabat2/     # MetaBAT2 binning results
             ├── 04_binning/concoct/      # CONCOCT binning results
             ├── 05_quality/metabat2/     # CheckM quality assessment (MetaBAT2 bins)
-            └── 05_quality/concoct/      # CheckM quality assessment (CONCOCT bins)
+            ├── 05_quality/concoct/      # CheckM quality assessment (CONCOCT bins)
+            ├── 06_kraken2/metabat2/     # Kraken2 taxonomic classification (MetaBAT2 bins)
+            └── 06_kraken2/concoct/      # Kraken2 taxonomic classification (CONCOCT bins)
             
             Assembly outputs:
             - ${outdir}/03_assembly/*.fasta.gz    # Final assembly
@@ -172,11 +189,18 @@ workflow {
             - ${outdir}/05_quality/*/checkm_summary.tsv    # Bin quality summaries
             - ${outdir}/05_quality/*/checkm_results/       # Detailed CheckM results
             
+            Taxonomic classification outputs:
+            - ${outdir}/06_kraken2/*/metabat2_kraken2_summary.tsv    # MetaBAT2 bins taxonomy summary
+            - ${outdir}/06_kraken2/*/concoct_kraken2_summary.tsv     # CONCOCT bins taxonomy summary
+            - ${outdir}/06_kraken2/*/metabat2_kraken2_results/       # Detailed Kraken2 results (MetaBAT2)
+            - ${outdir}/06_kraken2/*/concoct_kraken2_results/        # Detailed Kraken2 results (CONCOCT)
+            
             Next steps:
             - Review QC reports in ${outdir}/01_QC/nanoplot/
             - Check filtering logs in ${outdir}/02_filtered/
             - Examine assembly statistics in ${outdir}/03_assembly/*.info.txt
             - Analyze bin quality in ${outdir}/05_quality/*/checkm_summary.tsv
+            - Review taxonomic assignments in ${outdir}/06_kraken2/*_kraken2_summary.tsv
             - High-quality bins (>90% complete, <5% contamination) are ready for further analysis
             """
         } else {
