@@ -103,6 +103,10 @@ include { CHECKM as CHECKM_CONCOCT } from './modules/checkm.nf'
 include { KRAKEN2 } from './modules/kraken2.nf'
 include { KRAKEN2 as KRAKEN2_METABAT2 } from './modules/kraken2.nf'
 include { KRAKEN2 as KRAKEN2_CONCOCT } from './modules/kraken2.nf'
+include { BRACKEN } from './modules/bracken.nf'
+include { BRACKEN as BRACKEN_METABAT2 } from './modules/bracken.nf'
+include { BRACKEN as BRACKEN_CONCOCT } from './modules/bracken.nf'
+include { BRACKEN_COMBINED_REPORT } from './modules/bracken.nf'
 
 workflow {
     
@@ -148,11 +152,43 @@ workflow {
     // Run Kraken2 on CONCOCT bins after CheckM
     KRAKEN2_CONCOCT(CONCOCT.out.bins, "concoct")
     
-    // Print completion message
-    // Print completion message
-    // Print completion message
-    // Print completion message
-    workflow.onComplete {
+    // Stage 8: Species-level abundance estimation with Bracken
+    // Transform Kraken2 outputs for Bracken input format
+    metabat2_bracken_input = KRAKEN2_METABAT2.out.kraken_reports
+        .flatMap { method, reports ->
+            reports.collect { report ->
+                def bin_id = report.getBaseName().replaceAll(/_kraken2_report\.txt$/, '')
+                [method, bin_id, report]
+            }
+        }
+    
+    concoct_bracken_input = KRAKEN2_CONCOCT.out.kraken_reports
+        .flatMap { method, reports ->
+            reports.collect { report ->
+                def bin_id = report.getBaseName().replaceAll(/_kraken2_report\.txt$/, '')
+                [method, bin_id, report]
+            }
+        }
+    
+    // Run Bracken on MetaBAT2 Kraken2 results
+    BRACKEN_METABAT2(metabat2_bracken_input)
+    
+    // Run Bracken on CONCOCT Kraken2 results  
+    BRACKEN_CONCOCT(concoct_bracken_input)
+    
+    // Create combined Bracken reports
+    BRACKEN_COMBINED_REPORT(
+        BRACKEN_METABAT2.out.bracken_output
+            .mix(BRACKEN_CONCOCT.out.bracken_output)
+            .groupTuple(by: 0)
+            .map { method, outputs -> 
+                [method, outputs] 
+            }
+    )
+}
+
+// Print completion message
+workflow.onComplete {
         def success = workflow?.success ?: false
         def exitStatus = workflow?.exitStatus ?: 0
         def failed = workflow?.stats?.failedCount ?: 0
@@ -173,7 +209,9 @@ workflow {
             ├── 05_quality/metabat2/     # CheckM quality assessment (MetaBAT2 bins)
             ├── 05_quality/concoct/      # CheckM quality assessment (CONCOCT bins)
             ├── 06_kraken2/metabat2/     # Kraken2 taxonomic classification (MetaBAT2 bins)
-            └── 06_kraken2/concoct/      # Kraken2 taxonomic classification (CONCOCT bins)
+            ├── 06_kraken2/concoct/      # Kraken2 taxonomic classification (CONCOCT bins)
+            └── 07_bracken/metabat2/     # Bracken species-level abundance (MetaBAT2 bins)
+            └── 07_bracken/concoct/      # Bracken species-level abundance (CONCOCT bins)
             
             Assembly outputs:
             - ${outdir}/03_assembly/*.fasta.gz    # Final assembly
@@ -195,16 +233,22 @@ workflow {
             - ${outdir}/06_kraken2/*/metabat2_kraken2_results/       # Detailed Kraken2 results (MetaBAT2)
             - ${outdir}/06_kraken2/*/concoct_kraken2_results/        # Detailed Kraken2 results (CONCOCT)
             
+            Species-level abundance outputs:
+            - ${outdir}/07_bracken/metabat2_bracken_combined_report.txt    # Combined MetaBAT2 species abundance
+            - ${outdir}/07_bracken/concoct_bracken_combined_report.txt     # Combined CONCOCT species abundance
+            - ${outdir}/07_bracken/metabat2/*_bracken_output.txt           # Individual MetaBAT2 bin abundances
+            - ${outdir}/07_bracken/concoct/*_bracken_output.txt            # Individual CONCOCT bin abundances
+            
             Next steps:
             - Review QC reports in ${outdir}/01_QC/nanoplot/
             - Check filtering logs in ${outdir}/02_filtered/
             - Examine assembly statistics in ${outdir}/03_assembly/*.info.txt
             - Analyze bin quality in ${outdir}/05_quality/*/checkm_summary.tsv
             - Review taxonomic assignments in ${outdir}/06_kraken2/*_kraken2_summary.tsv
+            - Examine species-level abundances in ${outdir}/07_bracken/*_bracken_combined_report.txt
             - High-quality bins (>90% complete, <5% contamination) are ready for further analysis
             """
         } else {
             log.error "Pipeline failed. Check the error messages above."
         }
-    }
 }
