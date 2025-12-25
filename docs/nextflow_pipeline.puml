@@ -1,0 +1,131 @@
+@startuml Nextflow Metagenomics Pipeline
+
+title Nextflow Metagenomics Analysis Pipeline v2.0 - With Contig Filtering
+
+skinparam activity {
+  BackgroundColor #E3F2FD
+  BorderColor #1976D2
+  FontSize 12
+}
+
+start
+
+:Input FASTQ file\n(Nanopore or Illumina reads);
+
+note right
+  Stage 1: Quality Control
+end note
+
+fork
+  :NANOPLOT\nQuality assessment;
+fork again
+  :FILTLONG\nRead filtering\n(min length: 1000 bp, keep 90%);
+end fork
+
+note right
+  Stage 2-3: Assembly
+end note
+
+:FLYE\nDe novo assembly\n(meta mode for metagenomes);
+
+:FILTER_CONTIGS\nFilter short contigs\n(min length: 1000 bp)\n**NEW STEP**;
+
+note right
+  Uses seqkit to remove
+  short contigs before binning
+end note
+
+:GUNZIP\nDecompress filtered FASTA;
+
+fork
+  :BWA_MAPPING\nAlign reads to filtered assembly;
+fork again
+  :ASSEMBLY_STATS\nStats on filtered assembly;
+end fork
+
+note right
+  Stage 4-5: Binning Phase
+  (on filtered contigs)
+end note
+
+fork
+  :METABAT2\nCoverage-based binning\n(on filtered contigs);
+  :CHECKM_METABAT2\nQuality assessment\n(completeness/contamination);
+fork again
+  :CONCOCT\nComposition-based binning\n(on filtered contigs);
+  :CHECKM_CONCOCT\nQuality assessment;
+end fork
+
+note right
+  Stage 6: Bin Quality Filtering
+end note
+
+:BIN_FILTER\nFilter by quality\n(completeness >50%, contamination <10%)\nOptional: --skip_bin_quality_filter;
+
+:DREP\nDereplicate bins\n(ANI-based clustering)\nRemove redundant genomes\n**NEW STEP**;
+
+note right
+  Stage 7: Per-Bin Annotation
+  Each dereplicated bin processed separately
+end note
+
+partition "Parallel Annotation" {
+  fork
+    :PROKKA\nGenome annotation\n(GFF, FAA, GBK)\nFor each bin;
+  fork again
+    :ABRICATE\nAMR gene detection\n(CARD, NCBI, ResFinder)\nFor each bin;
+  fork again
+    :DEEPARG\nML-based ARG prediction\nFor each bin;
+  end fork
+}
+
+note right
+  Stage 8: Taxonomic Classification (Optional)
+end note
+
+if (Kraken2 DB available?) then (yes)
+  fork
+    :KRAKEN2\nTaxonomic classification\nFor MetaBAT2/CONCOCT bins;
+    if (Bracken DB available?) then (yes)
+      :BRACKEN\nSpecies abundance estimation;
+    endif
+  end fork
+endif
+
+if (GTDB-Tk DB available?) then (yes)
+  :GTDB-Tk\nBacterial/Archaeal taxonomy\nPhylogenetic placement;
+endif
+
+:Final Results\nPer-organism annotations\nTaxonomic assignments\nAMR profiles;
+
+stop
+
+legend right
+  **Pipeline v2.0 Updates**
+  ✅ FILTER_CONTIGS: Pre-filters short contigs before binning
+  ✅ DREP: Deduplicates similar genomes (ANI threshold)
+  ✅ --skip_bin_quality_filter: Optional bin QC bypass
+  ✅ seqkit: Fast contig filtering (2.12.0)
+  ✅ Improved DREP input handling
+  
+  **Key Features**
+  • Two-level filtering:
+    1. Contigs: 1000bp (global)
+    2. Bins: >50% complete, <10% contamination
+  • Parallel binning: MetaBAT2 + CONCOCT
+  • Per-bin annotation after dereplication
+  • Optional taxonomic classification
+  
+  **Parameters**
+  --contig_min_length 1000
+  --bin_filter_completeness 50
+  --bin_filter_contamination 10
+  --skip_bin_quality_filter true/false
+  --drep_ani 0.95
+  
+  **Performance**
+  Small dataset (~150MB): ~8-10 minutes
+  Large dataset (~3.5GB): ~30-60 minutes
+end legend
+
+@enduml

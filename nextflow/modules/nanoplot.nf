@@ -1,9 +1,10 @@
 process NANOPLOT {
     tag "$sample_id"
-    
+    publishDir "${params.outdir}/01_QC/nanoplot", mode: 'copy'
+
     input:
     tuple val(sample_id), path(reads)
-    
+
     output:
     path "${sample_id}_nanoplot", emit: report
     

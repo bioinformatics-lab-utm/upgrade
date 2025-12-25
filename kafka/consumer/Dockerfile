@@ -4,7 +4,7 @@ WORKDIR /app
 
 # Установить системные зависимости
 RUN apt-get update && apt-get install -y \
-    libpq-dev gcc \
+    libpq-dev gcc procps \
     && rm -rf /var/lib/apt/lists/*
 
 # Установить Python зависимости

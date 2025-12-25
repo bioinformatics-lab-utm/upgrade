@@ -3,8 +3,10 @@ import logging
 import os
 from datetime import datetime, timezone
 from io import BytesIO
+from urllib.parse import quote_plus
 
 import psycopg2
+from psycopg2 import pool
 from psycopg2.extras import RealDictCursor
 from kafka import KafkaConsumer
 from minio import Minio
@@ -16,17 +18,37 @@ logger = logging.getLogger(__name__)
 class WeatherConsumer:
     def __init__(self):
         self.kafka_servers = os.getenv('KAFKA_BOOTSTRAP_SERVERS', 'kafka:29092').split(',')
-        self.postgres_url = os.getenv('POSTGRES_URL')
+
+        # Read PostgreSQL password from Docker secret
+        postgres_password = os.getenv('POSTGRES_PASSWORD', '')
+        if not postgres_password and os.path.exists('/run/secrets/postgres_password'):
+            with open('/run/secrets/postgres_password', 'r') as f:
+                postgres_password = f.read().strip()
+
+        # Build postgres URL with URL-encoded password
+        postgres_host = os.getenv('POSTGRES_HOST', 'postgres')
+        postgres_port = os.getenv('POSTGRES_PORT', '5432')
+        postgres_db = os.getenv('POSTGRES_DB', 'upgrade_db')
+        postgres_user = os.getenv('POSTGRES_USER', 'upgrade')
+        self.postgres_url = f'postgresql://{postgres_user}:{quote_plus(postgres_password)}@{postgres_host}:{postgres_port}/{postgres_db}'
+
+        # MinIO configuration
         self.minio_endpoint = os.getenv('MINIO_ENDPOINT', 'minio:9000')
         self.minio_access_key = os.getenv('MINIO_ACCESS_KEY')
-        self.minio_secret_key = os.getenv('MINIO_SECRET_KEY')
+
+        # Read MinIO secret key from Docker secret
+        self.minio_secret_key = os.getenv('MINIO_SECRET_KEY', '')
+        if not self.minio_secret_key and os.path.exists('/run/secrets/minio_root_password'):
+            with open('/run/secrets/minio_root_password', 'r') as f:
+                self.minio_secret_key = f.read().strip()
+
         self.minio_bucket = os.getenv('MINIO_BUCKET', 'weather-data')
         
         self.topic = 'weather-data'
         self.consumer_group = 'weather-consumer-group'
         
         self.consumer = None
-        self.postgres_conn = None
+        self.db_pool = None  # Connection pool instead of single connection
         self.minio_client = None
 
     def initialize(self):
@@ -43,10 +65,13 @@ class WeatherConsumer:
             )
             logger.info("Kafka consumer initialized")
             
-            # PostgreSQL connection
+            # PostgreSQL connection pool (1-10 connections)
             if self.postgres_url:
-                self.postgres_conn = psycopg2.connect(self.postgres_url)
-                logger.info("PostgreSQL connected")
+                self.db_pool = pool.SimpleConnectionPool(
+                    1, 10,
+                    self.postgres_url
+                )
+                logger.info("PostgreSQL connection pool initialized (1-10 connections)")
             
             # MinIO client
             if self.minio_access_key:
@@ -74,9 +99,22 @@ class WeatherConsumer:
             logger.error("MinIO init failed: %s", e)
 
     def get_location_id(self, city_name, country='Romania'):
+        """Get location_id from database using connection pool.
+        
+        Args:
+            city_name: Name of the city
+            country: Country name (default: Romania)
+            
+        Returns:
+            location_id if found, None otherwise
+        """
+        conn = None
         try:
-            with self.postgres_conn.cursor(cursor_factory=RealDictCursor) as cur:
-                # Найти по city
+            # Get connection from pool
+            conn = self.db_pool.getconn()
+            
+            with conn.cursor(cursor_factory=RealDictCursor) as cur:
+                # Try 1: Find by city name
                 cur.execute("""
                     SELECT location_id FROM locations 
                     WHERE LOWER(city) = LOWER(%s) AND country = %s
@@ -86,10 +124,10 @@ class WeatherConsumer:
                 
                 result = cur.fetchone()
                 if result:
-                    logger.info("Found location_id: %s for %s (%s)", result['location_id'], city_name, country)
+                    logger.debug("Found location_id: %s for %s (%s) via city", result['location_id'], city_name, country)
                     return result['location_id']
                 
-                # Найти по location_name без "Weather Station"
+                # Try 2: Find by location_name without "Weather Station"
                 cur.execute("""
                     SELECT location_id FROM locations 
                     WHERE LOWER(REPLACE(location_name, ' Weather Station', '')) = LOWER(%s) 
@@ -100,10 +138,10 @@ class WeatherConsumer:
                 
                 result = cur.fetchone()
                 if result:
-                    logger.info("Found location_id: %s for %s (%s) via location_name", result['location_id'], city_name, country)
+                    logger.debug("Found location_id: %s for %s (%s) via location_name", result['location_id'], city_name, country)
                     return result['location_id']
                 
-                # Найти по частичному совпадению
+                # Try 3: Find by partial match
                 cur.execute("""
                     SELECT location_id FROM locations 
                     WHERE LOWER(location_name) LIKE LOWER(%s) AND country = %s
@@ -113,15 +151,30 @@ class WeatherConsumer:
                 
                 result = cur.fetchone()
                 if result:
-                    logger.info("Found location_id: %s for %s (%s) via partial match", result['location_id'], city_name, country)
+                    logger.debug("Found location_id: %s for %s (%s) via partial match", result['location_id'], city_name, country)
                     return result['location_id']
                 
-                logger.warning("Location not found: %s (%s)", city_name, country)
+                logger.warning("Location not found in DB: %s (%s)", city_name, country)
                 return None
                 
+        except psycopg2.OperationalError as e:
+            logger.error("PostgreSQL connection error for %s (%s): %s", city_name, country, e)
+            # Try to recreate pool
+            try:
+                if self.db_pool:
+                    self.db_pool.closeall()
+                self.db_pool = pool.SimpleConnectionPool(1, 10, self.postgres_url)
+                logger.info("Connection pool recreated after error")
+            except Exception as pool_error:
+                logger.error("Failed to recreate connection pool: %s", pool_error)
+            return None
         except Exception as e:
             logger.error("get_location_id failed for %s (%s): %s", city_name, country, e)
             return None
+        finally:
+            # Always return connection to pool
+            if conn:
+                self.db_pool.putconn(conn)
 
     def save_to_postgres(self, weather_event):
         try:
@@ -145,49 +198,52 @@ class WeatherConsumer:
                 timestamp_str = timestamp_str.replace('Z', '+00:00')
             measurement_time = datetime.fromisoformat(timestamp_str)
             
-            with self.postgres_conn.cursor() as cur:
-                # Проверить существование
-                cur.execute("""
-                    SELECT weather_id FROM weather_measurements 
-                    WHERE location_id = %s AND measurement_datetime = %s
-                """, (location_id, measurement_time))
-                
-                if cur.fetchone():
-                    logger.info("Record already exists for %s (%s) at %s", location['name'], location['country'], measurement_time)
-                    return
-                
-                # Вставить новую запись
-                cur.execute("""
-                    INSERT INTO weather_measurements (
-                        location_id, source, measurement_datetime,
-                        temperature, humidity, apparent_temperature,
-                        rainfall, windspeed, wind_direction, wind_gusts,
-                        pressure_msl, surface_pressure, cloud_cover,
-                        uv_index, weather_code, is_day,
-                        weather_api_source, quality_score, data_quality
-                    ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-                    RETURNING weather_id
-                """, (
-                    location_id, 'open_meteo', measurement_time,
-                    current.get('temperature_2m'), current.get('relative_humidity_2m'),
-                    current.get('apparent_temperature'), current.get('precipitation', 0),
-                    current.get('wind_speed_10m'), current.get('wind_direction_10m'),
-                    current.get('wind_gusts_10m'), current.get('pressure_msl'),
-                    current.get('surface_pressure'), current.get('cloud_cover'),
-                    current.get('uv_index'), current.get('weather_code'),
-                    current.get('is_day', 1) == 1, 'open-meteo-api',
-                    quality.get('completeness', 1.0),
-                    'good' if quality['status'] == 'success' else 'poor'
-                ))
-                
-                weather_id = cur.fetchone()[0]
-                self.postgres_conn.commit()
-                logger.info("Saved weather data for %s (%s) - ID: %s", location['name'], location['country'], weather_id)
+            # Get connection from pool
+            conn = self.db_pool.getconn()
+            try:
+                with conn.cursor() as cur:
+                    # Проверить существование
+                    cur.execute("""
+                        SELECT weather_id FROM weather_measurements 
+                        WHERE location_id = %s AND measurement_datetime = %s
+                    """, (location_id, measurement_time))
+                    
+                    if cur.fetchone():
+                        logger.debug("Record already exists for %s (%s) at %s", location['name'], location['country'], measurement_time)
+                        return
+                    
+                    # Вставить новую запись
+                    cur.execute("""
+                        INSERT INTO weather_measurements (
+                            location_id, source, measurement_datetime,
+                            temperature, humidity, apparent_temperature,
+                            rainfall, windspeed, wind_direction, wind_gusts,
+                            pressure_msl, surface_pressure, cloud_cover,
+                            uv_index, weather_code, is_day,
+                            weather_api_source, quality_score, data_quality
+                        ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                        RETURNING weather_id
+                    """, (
+                        location_id, 'open_meteo', measurement_time,
+                        current.get('temperature_2m'), current.get('relative_humidity_2m'),
+                        current.get('apparent_temperature'), current.get('precipitation', 0),
+                        current.get('wind_speed_10m'), current.get('wind_direction_10m'),
+                        current.get('wind_gusts_10m'), current.get('pressure_msl'),
+                        current.get('surface_pressure'), current.get('cloud_cover'),
+                        current.get('uv_index'), current.get('weather_code'),
+                        current.get('is_day', 1) == 1, 'open-meteo-api',
+                        quality.get('completeness', 1.0),
+                        'good' if quality['status'] == 'success' else 'poor'
+                    ))
+                    
+                    weather_id = cur.fetchone()[0]
+                    conn.commit()
+                    logger.info("✅ Saved weather data for %s (%s) - ID: %s", location['name'], location['country'], weather_id)
+            finally:
+                self.db_pool.putconn(conn)
                 
         except Exception as e:
             logger.error("Failed to save to PostgreSQL for %s: %s", location.get('name', 'unknown'), e)
-            if self.postgres_conn:
-                self.postgres_conn.rollback()
 
     def save_to_minio(self, weather_event):
         try:
@@ -223,7 +279,7 @@ class WeatherConsumer:
             country = weather_event.get('location', {}).get('country', 'unknown')
             logger.info("Processing event %s for %s (%s)", event_id, location_name, country)
             
-            if self.postgres_conn:
+            if self.db_pool:
                 self.save_to_postgres(weather_event)
             
             if self.minio_client:
@@ -261,12 +317,15 @@ class WeatherConsumer:
             self.cleanup()
 
     def cleanup(self):
+        """Clean up resources on shutdown."""
         try:
             if self.consumer:
                 self.consumer.close()
-            if self.postgres_conn:
-                self.postgres_conn.close()
-            logger.info("Cleanup completed")
+                logger.info("Kafka consumer closed")
+            if self.db_pool:
+                self.db_pool.closeall()
+                logger.info("PostgreSQL connection pool closed")
+            logger.info("✅ Cleanup completed successfully")
         except Exception as e:
             logger.error("Cleanup error: %s", e)
 

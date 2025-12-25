@@ -1,0 +1,3 @@
+# PostgreSQL backups directory
+# Backups are created daily at 2am
+# Retention: 7 daily, 4 weekly, 6 monthly

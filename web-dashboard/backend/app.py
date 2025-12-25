@@ -1,333 +1,410 @@
+"""
+Sanic API для UPGRADE - Urban Pathogen Genomic Surveillance Network
+Combines weather data monitoring and genomic pipeline management
+"""
 from sanic import Sanic, response
 from sanic_cors import CORS
+from sanic.response import json
 import asyncpg
 import os
-import json
-from datetime import datetime, date
-from sanic.response import file
-from sanic.exceptions import NotFound
+from datetime import datetime, timedelta
+import logging
+from pathlib import Path
 
-app = Sanic("UPGRADE-API")
-CORS(app)
+# Import configuration with secrets support
+from config import config
 
-# Database connection
-DATABASE_URL = "postgresql://upgrade:upgrade123@localhost:5432/upgrade_db"
+# Import pipeline routes
+from routes.pipeline import pipeline_bp
+from routes.samples import samples_bp
+from routes.results import results_bp
+from routes.auth import auth_bp
+from routes.pipeline_monitoring import monitoring_bp
 
-@app.before_server_start
-async def setup_db(app, loop):
-    """Установка соединения с базой данных"""
-    try:
-        app.ctx.db = await asyncpg.connect(DATABASE_URL)
-        print("Database connected successfully")
-    except Exception as e:
-        print(f"Database connection failed: {e}")
+# Настройка логирования
+logging.basicConfig(level=getattr(logging, config.LOG_LEVEL))
+logger = logging.getLogger(__name__)
 
-@app.after_server_stop
-async def close_db(app, loop):
-    """Закрытие соединения с базой данных"""
-    if hasattr(app.ctx, 'db'):
-        await app.ctx.db.close()
+app = Sanic("upgrade_api")
 
-# Custom JSON encoder for datetime objects
-def json_serial(obj):
-    if isinstance(obj, (datetime, date)):
-        return obj.isoformat()
-    raise TypeError(f"Type {type(obj)} not serializable")
+# Configure CORS with environment-based origin restrictions
+# Development: ALLOWED_ORIGINS='*' (default, accepts all)
+# Production: ALLOWED_ORIGINS='https://yourdomain.com,https://app.yourdomain.com'
+allowed_origins = config.ALLOWED_ORIGINS.split(',') if config.ALLOWED_ORIGINS != '*' else ['*']
+CORS(app, origins=allowed_origins if allowed_origins != ['*'] else '*')
 
-# API маршруты
-@app.route("/api/health")
-async def health_check(request):
-    """Проверка состояния API"""
-    try:
-        # Проверка подключения к базе
-        await app.ctx.db.fetchval("SELECT 1")
-        return response.json({
-            "status": "healthy",
-            "database": "connected",
-            "timestamp": datetime.now().isoformat()
-        })
-    except Exception as e:
-        return response.json({
-            "status": "unhealthy", 
-            "error": str(e),
-            "timestamp": datetime.now().isoformat()
-        }, status=500)
+# Configure request size limits for large FASTQ uploads (500MB)
+app.config.REQUEST_MAX_SIZE = 500 * 1024 * 1024  # 500MB
+app.config.REQUEST_TIMEOUT = 300  # 5 minutes for large uploads
 
-@app.route("/api/locations")
-async def get_locations(request):
-    """Получить все локации"""
-    try:
-        query = """
-        SELECT location_id, city, country, location_name, 
-               latitude, longitude, timezone, campus_area, 
-               traffic_density, indoor_outdoor, created_at
-        FROM locations 
-        WHERE is_active = true
-        ORDER BY country, city
-        """
-        rows = await app.ctx.db.fetch(query)
-        
-        locations = []
-        for row in rows:
-            location = dict(row)
-            locations.append(location)
-        
-        return response.json({
-            "success": True,
-            "count": len(locations),
-            "data": locations
-        })
-    except Exception as e:
-        return response.json({
-            "success": False,
-            "error": str(e)
-        }, status=500)
-
-@app.route("/api/weather")
-async def get_weather(request):
-    """Получить погодные данные"""
-    try:
-        # Параметры запроса
-        limit = int(request.args.get('limit', 100))
-        city = request.args.get('city')
-        country = request.args.get('country')
-        
-        # Базовый запрос
-        query = """
-        SELECT w.weather_id, w.measurement_datetime, w.temperature, 
-               w.humidity, w.apparent_temperature, w.rainfall, 
-               w.windspeed, w.wind_direction, w.pressure_msl,
-               w.surface_pressure, w.cloud_cover, w.uv_index,
-               w.weather_code, w.is_day, w.quality_score,
-               w.data_quality, w.source,
-               l.city, l.country, l.latitude, l.longitude, l.location_name
-        FROM weather_measurements w
-        JOIN locations l ON w.location_id = l.location_id
-        WHERE 1=1
-        """
-        
-        params = []
-        param_count = 1
-        
-        # Фильтры
-        if city:
-            query += f" AND LOWER(l.city) = LOWER(${param_count})"
-            params.append(city)
-            param_count += 1
-            
-        if country:
-            query += f" AND LOWER(l.country) = LOWER(${param_count})"
-            params.append(country)
-            param_count += 1
-        
-        query += f" ORDER BY w.measurement_datetime DESC LIMIT ${param_count}"
-        params.append(limit)
-        
-        rows = await app.ctx.db.fetch(query, *params)
-        
-        weather_data = []
-        for row in rows:
-            data = dict(row)
-            weather_data.append(data)
-        
-        return response.json({
-            "success": True,
-            "count": len(weather_data),
-            "data": weather_data
-        })
-    except Exception as e:
-        return response.json({
-            "success": False,
-            "error": str(e)
-        }, status=500)
-
-@app.route("/api/weather/latest")
-async def get_latest_weather(request):
-    """Получить последние погодные данные для каждого города"""
-    try:
-        query = """
-        WITH latest_weather AS (
-            SELECT w.*, l.city, l.country, l.latitude, l.longitude, l.location_name,
-                   ROW_NUMBER() OVER (PARTITION BY l.location_id ORDER BY w.measurement_datetime DESC) as rn
-            FROM weather_measurements w
-            JOIN locations l ON w.location_id = l.location_id
-        )
-        SELECT weather_id, measurement_datetime, temperature, humidity, 
-               apparent_temperature, rainfall, windspeed, wind_direction, 
-               pressure_msl, surface_pressure, cloud_cover, uv_index,
-               weather_code, is_day, quality_score, data_quality, source,
-               city, country, latitude, longitude, location_name
-        FROM latest_weather 
-        WHERE rn = 1
-        ORDER BY city
-        """
-        
-        rows = await app.ctx.db.fetch(query)
-        
-        weather_data = []
-        for row in rows:
-            data = dict(row)
-            weather_data.append(data)
-        
-        return response.json({
-            "success": True,
-            "count": len(weather_data),
-            "data": weather_data
-        })
-    except Exception as e:
-        return response.json({
-            "success": False,
-            "error": str(e)
-        }, status=500)
-
-@app.route("/api/weather/stats")
-async def get_weather_stats(request):
-    """Получить статистику погодных данных"""
-    try:
-        stats_query = """
-        SELECT 
-            COUNT(*) as total_measurements,
-            COUNT(DISTINCT location_id) as locations_count,
-            MAX(measurement_datetime) as last_measurement,
-            MIN(measurement_datetime) as first_measurement,
-            AVG(temperature) as avg_temperature,
-            AVG(humidity) as avg_humidity,
-            AVG(windspeed) as avg_windspeed
-        FROM weather_measurements
-        """
-        
-        recent_query = """
-        SELECT 
-            COUNT(*) as recent_measurements,
-            AVG(temperature) as recent_avg_temp,
-            AVG(humidity) as recent_avg_humidity
-        FROM weather_measurements 
-        WHERE measurement_datetime >= NOW() - INTERVAL '24 hours'
-        """
-        
-        stats_row = await app.ctx.db.fetchrow(stats_query)
-        recent_row = await app.ctx.db.fetchrow(recent_query)
-        
-        stats = dict(stats_row) if stats_row else {}
-        recent = dict(recent_row) if recent_row else {}
-        
-        return response.json({
-            "success": True,
-            "data": {
-                **stats,
-                **recent
-            }
-        })
-    except Exception as e:
-        return response.json({
-            "success": False,
-            "error": str(e)
-        }, status=500)
-
-@app.route("/api/weather/cities")
-async def get_cities(request):
-    """Получить список городов с погодными данными"""
-    try:
-        query = """
-        SELECT DISTINCT l.city, l.country, COUNT(w.weather_id) as measurement_count,
-               MAX(w.measurement_datetime) as last_update
-        FROM locations l
-        LEFT JOIN weather_measurements w ON l.location_id = w.location_id
-        WHERE l.is_active = true
-        GROUP BY l.city, l.country
-        ORDER BY l.country, l.city
-        """
-        
-        rows = await app.ctx.db.fetch(query)
-        
-        cities = []
-        for row in rows:
-            city_data = dict(row)
-            cities.append(city_data)
-        
-        return response.json({
-            "success": True,
-            "count": len(cities),
-            "data": cities
-        })
-    except Exception as e:
-        return response.json({
-            "success": False,
-            "error": str(e)
-        }, status=500)
-
-@app.route("/api/geojson/weather")
-async def get_geojson_weather(request):
-    """Получить погодные данные в формате GeoJSON"""
-    try:
-        query = """
-        SELECT w.weather_id, w.measurement_datetime, w.temperature, 
-               w.humidity, w.apparent_temperature, w.rainfall, 
-               w.windspeed, w.wind_direction, w.pressure_msl,
-               w.surface_pressure, w.cloud_cover, w.uv_index,
-               w.weather_code, w.is_day, w.quality_score,
-               w.data_quality, w.source,
-               l.city, l.country, l.latitude, l.longitude, l.location_name
-        FROM weather_measurements w
-        JOIN locations l ON w.location_id = l.location_id
-        WHERE w.measurement_datetime >= NOW() - INTERVAL '24 hours'
-        ORDER BY w.measurement_datetime DESC
-        """
-        
-        rows = await app.ctx.db.fetch(query)
-        
-        features = []
-        for row in rows:
-            feature = {
-                "type": "Feature",
-                "geometry": {
-                    "type": "Point",
-                    "coordinates": [row["longitude"], row["latitude"]]
-                },
-                "properties": dict(row)
-            }
-            features.append(feature)
-        
-        return response.json({
-            "type": "FeatureCollection",
-            "features": features
-        })
-    except Exception as e:
-        return response.json({
-            "success": False,
-            "error": str(e)
-        }, status=500)
-
-# Статические файлы React - должны быть после API маршрутов
-@app.route('/')
-async def serve_index(request):
-    return await file(os.path.join(os.path.dirname(__file__), '../frontend/build/index.html'))
-
-@app.route('/<path:path>')
-async def serve_static(request, path):
-    # Пробуем отдать статический файл
-    file_path = os.path.join(os.path.dirname(__file__), '../frontend/build', path)
-    if os.path.exists(file_path):
-        return await file(file_path)
-    # Если файл не найден, отдаем index.html (для поддержки роутинга React)
-    index_path = os.path.join(os.path.dirname(__file__), '../frontend/build/index.html')
-    if os.path.exists(index_path):
-        return await file(index_path)
-    raise NotFound("File not found")
-
-@app.exception(Exception)
-async def handle_exception(request, exception):
-    """Глобальная обработка исключений"""
-    if isinstance(exception, asyncpg.PostgresError):
-        return response.json({
-            "success": False,
-            "error": "Database error occurred"
-        }, status=500)
+# Add CORS headers middleware
+@app.middleware('response')
+async def add_cors_headers(request, response):
+    # Use configured allowed origins instead of wildcard
+    origin = request.headers.get('Origin', '')
     
-    return response.json({
-        "success": False,
-        "error": str(exception)
-    }, status=500)
+    if config.ALLOWED_ORIGINS == '*':
+        # Development mode: allow all origins
+        response.headers['Access-Control-Allow-Origin'] = '*'
+    elif origin in allowed_origins:
+        # Production mode: allow only whitelisted origins
+        response.headers['Access-Control-Allow-Origin'] = origin
+        response.headers['Vary'] = 'Origin'
+    
+    response.headers['Access-Control-Allow-Methods'] = 'GET, POST, PUT, DELETE, OPTIONS'
+    response.headers['Access-Control-Allow-Headers'] = 'Content-Type, Authorization, Accept'
+    response.headers['Access-Control-Max-Age'] = '3600'
+    return response
+
+@app.options('/<path:path>')
+async def options_handler(request, path):
+    return response.text('', status=204)
+
+# Register blueprints
+app.blueprint(auth_bp)
+app.blueprint(pipeline_bp)
+app.blueprint(samples_bp)
+app.blueprint(results_bp)
+app.blueprint(monitoring_bp)
+
+# Database configuration from config module
+DB_CONFIG = {
+    'host': config.POSTGRES_HOST,
+    'port': config.POSTGRES_PORT,
+    'database': config.POSTGRES_DB,
+    'user': config.POSTGRES_USER,
+    'password': config.POSTGRES_PASSWORD,
+}
+
+
+# Пул соединений с БД
+@app.listener('before_server_start')
+async def setup_db(app, loop):
+    """Инициализация пула соединений"""
+    app.ctx.db_pool = await asyncpg.create_pool(**DB_CONFIG, min_size=5, max_size=20)
+    app.ctx.logger = logger
+    logger.info("Database pool created")
+    logger.info("Pipeline routes registered")
+
+
+@app.listener('after_server_stop')
+async def close_db(app, loop):
+    """Закрытие пула соединений"""
+    await app.ctx.db_pool.close()
+    logger.info("Database pool closed")
+
+
+# ==================== API ENDPOINTS ====================
+
+@app.route("/api/health")
+async def health(request):
+    """Проверка состояния API"""
+    return json({"status": "healthy", "measurement_datetime": datetime.utcnow().isoformat()})
+
+
+@app.route("/api/stations")
+async def get_stations(request):
+    """Получить список всех метеостанций с последними данными"""
+    async with app.ctx.db_pool.acquire() as conn:
+        query = """
+            WITH latest_readings AS (
+                SELECT DISTINCT ON (location_id)
+                    location_id,
+                    temperature,
+                    humidity,
+                    windspeed,
+                    wind_direction,
+                    rainfall,
+                    measurement_datetime
+                FROM weather_measurements
+                ORDER BY location_id, measurement_datetime DESC
+            )
+            SELECT
+                l.location_id as id,
+                l.location_name as name,
+                l.region,
+                l.country,
+                l.longitude,
+                l.latitude,
+                l.elevation,
+                lr.temperature,
+                lr.humidity,
+                lr.windspeed as windspeed,
+                lr.wind_direction,
+                lr.rainfall as rainfall,
+                lr.measurement_datetime as last_update
+            FROM locations l
+            LEFT JOIN latest_readings lr ON l.location_id = lr.location_id
+            ORDER BY l.location_name
+        """
+        
+        rows = await conn.fetch(query)
+        
+        stations = [
+            {
+                'id': row['id'],
+                'name': row['name'],
+                'region': row['region'],
+                'country': row['country'],
+                'longitude': float(row['longitude']) if row['longitude'] else None,
+                'latitude': float(row['latitude']) if row['latitude'] else None,
+                'elevation': float(row['elevation']) if row['elevation'] else None,
+                'temperature': float(row['temperature']) if row['temperature'] else None,
+                'humidity': float(row['humidity']) if row['humidity'] else None,
+                'windspeed': float(row['windspeed']) if row['windspeed'] else None,
+                'wind_direction': float(row['wind_direction']) if row['wind_direction'] else None,
+                'rainfall': float(row['rainfall']) if row['rainfall'] else None,
+                'last_update': row['last_update'].isoformat() if row['last_update'] else None
+            }
+            for row in rows
+        ]
+        
+        return json({'stations': stations, 'count': len(stations)})
+
+
+@app.route("/api/station/<location_id:int>/history")
+async def get_station_history(request, location_id):
+    """Получить историю погоды для локации"""
+    hours = request.args.get('hours', 24)
+
+    async with app.ctx.db_pool.acquire() as conn:
+        query = """
+            SELECT
+                measurement_datetime as measurement_datetime,
+                temperature,
+                humidity,
+                windspeed as windspeed,
+                wind_direction,
+                rainfall as rainfall,
+                pressure_msl as pressure
+            FROM weather_measurements
+            WHERE location_id = $1
+                AND measurement_datetime >= NOW() - INTERVAL '1 hour' * $2
+            ORDER BY measurement_datetime DESC
+            LIMIT 1000
+        """
+        
+        rows = await conn.fetch(query, location_id, int(hours))
+        
+        history = [
+            {
+                'measurement_datetime': row['measurement_datetime'].isoformat(),
+                'temperature': float(row['temperature']) if row['temperature'] else None,
+                'humidity': float(row['humidity']) if row['humidity'] else None,
+                'windspeed': float(row['windspeed']) if row['windspeed'] else None,
+                'wind_direction': float(row['wind_direction']) if row['wind_direction'] else None,
+                'rainfall': float(row['rainfall']) if row['rainfall'] else None,
+                'pressure': float(row['pressure']) if row['pressure'] else None,
+            }
+            for row in rows
+        ]
+        
+        return json({'location_id': location_id, 'history': history, 'count': len(history)})
+
+
+@app.route("/api/stats")
+async def get_stats(request):
+    """Получить общую статистику"""
+    async with app.ctx.db_pool.acquire() as conn:
+        # Количество локаций
+        locations_count = await conn.fetchval("SELECT COUNT(*) FROM locations WHERE is_active = true")
+
+        # Количество измерений за последние 24 часа
+        measurements_24h = await conn.fetchval("""
+            SELECT COUNT(*) FROM weather_measurements
+            WHERE measurement_datetime >= NOW() - INTERVAL '24 hours'
+        """)
+
+        # Средние значения по всем локациям
+        avg_stats = await conn.fetchrow("""
+            SELECT
+                AVG(temperature) as avg_temp,
+                AVG(humidity) as avg_humidity,
+                AVG(windspeed) as avg_wind,
+                AVG(rainfall) as avg_precip
+            FROM weather_measurements
+            WHERE measurement_datetime >= NOW() - INTERVAL '1 hour'
+        """)
+
+        # Экстремальные значения
+        extremes = await conn.fetchrow("""
+            SELECT
+                MAX(temperature) as max_temp,
+                MIN(temperature) as min_temp,
+                MAX(windspeed) as max_wind
+            FROM weather_measurements
+            WHERE measurement_datetime >= NOW() - INTERVAL '24 hours'
+        """)
+        
+        return json({
+            'locations_count': locations_count,
+            'measurements_24h': measurements_24h,
+            'averages': {
+                'temperature': float(avg_stats['avg_temp']) if avg_stats['avg_temp'] else None,
+                'humidity': float(avg_stats['avg_humidity']) if avg_stats['avg_humidity'] else None,
+                'windspeed': float(avg_stats['avg_wind']) if avg_stats['avg_wind'] else None,
+                'rainfall': float(avg_stats['avg_precip']) if avg_stats['avg_precip'] else None,
+            },
+            'extremes': {
+                'max_temperature': float(extremes['max_temp']) if extremes['max_temp'] else None,
+                'min_temperature': float(extremes['min_temp']) if extremes['min_temp'] else None,
+                'max_windspeed': float(extremes['max_wind']) if extremes['max_wind'] else None,
+            }
+        })
+
+
+@app.route("/api/heatmap")
+async def get_heatmap_data(request):
+    """Получить данные для тепловой карты"""
+    metric = request.args.get('metric', 'temperature')
+    
+    valid_metrics = ['temperature', 'humidity', 'windspeed', 'rainfall']
+    if metric not in valid_metrics:
+        return json({'error': 'Invalid metric'}, status=400)
+    
+    async with app.ctx.db_pool.acquire() as conn:
+        query = f"""
+            WITH latest_readings AS (
+                SELECT DISTINCT ON (station_id)
+                    location_id,
+                    {metric} as value,
+                    measurement_datetime
+                FROM weather_measurements
+                ORDER BY location_id, measurement_datetime DESC
+            )
+            SELECT 
+                ST_X(s.location::geometry) as longitude,
+                ST_Y(s.location::geometry) as latitude,
+                lr.value,
+                s.name
+            FROM locations s
+            INNER JOIN latest_readings lr ON s.id = lr.location_id
+            WHERE lr.value IS NOT NULL
+        """
+        
+        rows = await conn.fetch(query)
+        
+        points = [
+            {
+                'longitude': float(row['longitude']),
+                'latitude': float(row['latitude']),
+                'value': float(row['value']),
+                'name': row['name']
+            }
+            for row in rows
+        ]
+        
+        return json({'metric': metric, 'points': points, 'count': len(points)})
+
+
+@app.route("/api/regions")
+async def get_regions(request):
+    """Получить статистику по регионам"""
+    async with app.ctx.db_pool.acquire() as conn:
+        query = """
+            WITH latest_readings AS (
+                SELECT DISTINCT ON (station_id)
+                    location_id,
+                    temperature,
+                    humidity,
+                    windspeed
+                FROM weather_measurements
+                ORDER BY location_id, measurement_datetime DESC
+            )
+            SELECT 
+                s.region,
+                COUNT(s.id) as station_count,
+                AVG(lr.temperature) as avg_temp,
+                AVG(lr.humidity) as avg_humidity,
+                AVG(lr.windspeed) as avg_wind
+            FROM locations s
+            LEFT JOIN latest_readings lr ON s.id = lr.location_id
+            GROUP BY s.region
+            ORDER BY s.region
+        """
+        
+        rows = await conn.fetch(query)
+        
+        regions = [
+            {
+                'region': row['region'],
+                'station_count': row['station_count'],
+                'avg_temperature': float(row['avg_temp']) if row['avg_temp'] else None,
+                'avg_humidity': float(row['avg_humidity']) if row['avg_humidity'] else None,
+                'avg_windspeed': float(row['avg_wind']) if row['avg_wind'] else None,
+            }
+            for row in rows
+        ]
+        
+        return json({'regions': regions, 'count': len(regions)})
+
+
+@app.route("/api/alerts")
+async def get_alerts(request):
+    """Получить предупреждения о критических погодных условиях"""
+    async with app.ctx.db_pool.acquire() as conn:
+        query = """
+            WITH latest_readings AS (
+                SELECT DISTINCT ON (station_id)
+                    location_id,
+                    temperature,
+                    windspeed,
+                    rainfall,
+                    measurement_datetime
+                FROM weather_measurements
+                ORDER BY location_id, measurement_datetime DESC
+            )
+            SELECT 
+                s.id,
+                s.name,
+                s.region,
+                ST_X(s.location::geometry) as longitude,
+                ST_Y(s.location::geometry) as latitude,
+                lr.temperature,
+                lr.windspeed,
+                lr.rainfall,
+                lr.measurement_datetime,
+                CASE
+                    WHEN lr.temperature > 35 THEN 'extreme_heat'
+                    WHEN lr.temperature < -20 THEN 'extreme_cold'
+                    WHEN lr.windspeed > 25 THEN 'strong_wind'
+                    WHEN lr.rainfall > 50 THEN 'heavy_rain'
+                    ELSE 'normal'
+                END as alert_type
+            FROM locations s
+            INNER JOIN latest_readings lr ON s.id = lr.location_id
+            WHERE lr.temperature > 35 
+                OR lr.temperature < -20 
+                OR lr.windspeed > 25 
+                OR lr.rainfall > 50
+            ORDER BY lr.measurement_datetime DESC
+        """
+        
+        rows = await conn.fetch(query)
+        
+        alerts = [
+            {
+                'station_id': row['id'],
+                'station_name': row['name'],
+                'region': row['region'],
+                'longitude': float(row['longitude']),
+                'latitude': float(row['latitude']),
+                'alert_type': row['alert_type'],
+                'temperature': float(row['temperature']) if row['temperature'] else None,
+                'windspeed': float(row['windspeed']) if row['windspeed'] else None,
+                'rainfall': float(row['rainfall']) if row['rainfall'] else None,
+                'measurement_datetime': row['measurement_datetime'].isoformat()
+            }
+            for row in rows
+        ]
+        
+        return json({'alerts': alerts, 'count': len(alerts)})
+
 
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=8000, debug=True)
+    app.run(
+        host="0.0.0.0",
+        port=int(os.getenv('SANIC_PORT', 8000)),
+        debug=os.getenv('DEBUG', 'false').lower() == 'true',
+        auto_reload=os.getenv('AUTO_RELOAD', 'false').lower() == 'true'
+    )

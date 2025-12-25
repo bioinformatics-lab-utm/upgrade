@@ -1,0 +1,59 @@
+FROM python:3.11-slim
+
+WORKDIR /app
+
+# Install system dependencies and Nextflow
+RUN apt-get update && apt-get install -y \
+    gcc \
+    postgresql-client \
+    curl \
+    default-jre-headless \
+    apt-transport-https \
+    ca-certificates \
+    gnupg \
+    lsb-release \
+    pigz \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install Docker CLI
+RUN curl -fsSL https://download.docker.com/linux/debian/gpg | gpg --dearmor -o /usr/share/keyrings/docker-archive-keyring.gpg && \
+    echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/docker-archive-keyring.gpg] https://download.docker.com/linux/debian $(lsb_release -cs) stable" | tee /etc/apt/sources.list.d/docker.list > /dev/null && \
+    apt-get update && \
+    apt-get install -y docker-ce-cli && \
+    rm -rf /var/lib/apt/lists/*
+
+# Install Nextflow
+RUN curl -s https://get.nextflow.io | bash && \
+    chmod +x nextflow && \
+    mv nextflow /usr/local/bin/ && \
+    mkdir -p /home/rqworker/.nextflow && \
+    chmod -R 777 /home/rqworker/.nextflow
+
+# Copy dependencies
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+
+# Install Redis Queue (RQ)
+RUN pip install --no-cache-dir rq redis
+
+# Copy application
+COPY . .
+
+# Create non-privileged user and add to docker group
+# Use UID 1003 to match host user nicolaedrabcinski
+# Use GID 988 to match host docker group
+RUN useradd -m -u 1003 rqworker && \
+    groupadd -f -g 988 docker && \
+    usermod -aG docker rqworker && \
+    mkdir -p /home/rqworker/.nextflow /tmp/nextflow && \
+    chown -R rqworker:rqworker /app /home/rqworker /tmp/nextflow
+
+USER rqworker
+
+# Environment variables for Nextflow
+ENV NXF_HOME=/home/rqworker/.nextflow
+ENV TMPDIR=/tmp/nextflow
+ENV PYTHONUNBUFFERED=1
+
+# Default command - will be overridden by docker-compose
+CMD ["rq", "worker", "--url", "redis://redis:6379", "pipeline-queue"]

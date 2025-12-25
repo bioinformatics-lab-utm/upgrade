@@ -2,6 +2,9 @@ FROM python:3.11-slim
 
 WORKDIR /app
 
+# Install system dependencies for healthcheck
+RUN apt-get update && apt-get install -y procps && rm -rf /var/lib/apt/lists/*
+
 # Установить зависимости
 RUN pip install --no-cache-dir \
     kafka-python==2.0.2 \

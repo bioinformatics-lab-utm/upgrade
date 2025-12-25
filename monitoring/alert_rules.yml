@@ -1,0 +1,281 @@
+# Prometheus Alert Rules for UPGRADE Genomics Platform
+# Documentation: https://prometheus.io/docs/prometheus/latest/configuration/alerting_rules/
+
+groups:
+  # ===========================================
+  # INFRASTRUCTURE ALERTS
+  # ===========================================
+  - name: infrastructure
+    interval: 30s
+    rules:
+      # 1. Service Down - ANY service is down for 2 minutes
+      - alert: ServiceDown
+        expr: up == 0
+        for: 2m
+        labels:
+          severity: critical
+          category: infrastructure
+        annotations:
+          summary: "Service {{ $labels.instance }} is down"
+          description: |
+            Service {{ $labels.job }} on instance {{ $labels.instance }} has been down for more than 2 minutes.
+            Current status: DOWN
+            Action: Check service logs and restart if necessary.
+
+      # 2. PostgreSQL Down
+      - alert: PostgreSQLDown
+        expr: up{job="postgres"} == 0
+        for: 1m
+        labels:
+          severity: critical
+          category: database
+        annotations:
+          summary: "PostgreSQL database is down"
+          description: |
+            PostgreSQL database is unreachable for more than 1 minute.
+            This will cause data loss and application failures.
+            Action: IMMEDIATE - Check postgres container and logs.
+
+      # 3. MinIO Down
+      - alert: MinIODown
+        expr: up{job="minio"} == 0
+        for: 2m
+        labels:
+          severity: critical
+          category: storage
+        annotations:
+          summary: "MinIO object storage is down"
+          description: |
+            MinIO storage is unreachable for more than 2 minutes.
+            Pipeline results cannot be stored.
+            Action: Check minio container and disk space.
+
+      # 4. Redis Down
+      - alert: RedisDown
+        expr: up{job="redis"} == 0
+        for: 2m
+        labels:
+          severity: warning
+          category: cache
+        annotations:
+          summary: "Redis cache is down"
+          description: |
+            Redis cache is unreachable. This will slow down the application.
+            Action: Check redis container and restart if necessary.
+
+      # 5. Disk Space Low
+      - alert: DiskSpaceLow
+        expr: (node_filesystem_avail_bytes{mountpoint="/"} / node_filesystem_size_bytes{mountpoint="/"}) * 100 < 15
+        for: 5m
+        labels:
+          severity: warning
+          category: infrastructure
+        annotations:
+          summary: "Disk space is running low on {{ $labels.instance }}"
+          description: |
+            Disk space on {{ $labels.instance }} is below 15%.
+            Current available: {{ $value | humanize }}%
+            Action: Clean up old files, expand disk, or move data.
+
+      # 6. High Memory Usage
+      - alert: HighMemoryUsage
+        expr: (node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes) * 100 < 10
+        for: 5m
+        labels:
+          severity: warning
+          category: infrastructure
+        annotations:
+          summary: "High memory usage on {{ $labels.instance }}"
+          description: |
+            Available memory is below 10% on {{ $labels.instance }}.
+            Current available: {{ $value | humanize }}%
+            Action: Check for memory leaks or increase resources.
+
+  # ===========================================
+  # PIPELINE ALERTS
+  # ===========================================
+  - name: pipeline
+    interval: 60s
+    rules:
+      # 7. Pipeline Failed
+      - alert: PipelineFailed
+        expr: increase(pipeline_runs_failed_total[10m]) > 0
+        for: 1m
+        labels:
+          severity: critical
+          category: pipeline
+        annotations:
+          summary: "Genomics pipeline has failed"
+          description: |
+            A genomics pipeline run has failed in the last 10 minutes.
+            Failed runs in last 10m: {{ $value }}
+            Action: Check pipeline logs and troubleshoot errors.
+
+      # 8. Pipeline Running Too Long
+      - alert: PipelineLongRunning
+        expr: pipeline_run_duration_seconds > 28800  # 8 hours
+        for: 5m
+        labels:
+          severity: warning
+          category: pipeline
+        annotations:
+          summary: "Pipeline running for more than 8 hours"
+          description: |
+            Pipeline {{ $labels.sample_id }} has been running for {{ $value | humanizeDuration }}.
+            This may indicate stuck processes or unusual sample complexity.
+            Action: Monitor progress, check if Nextflow is stalled.
+
+  # ===========================================
+  # RQ WORKER ALERTS
+  # ===========================================
+  - name: rq_worker
+    interval: 60s
+    rules:
+      # 9. RQ Worker High Memory
+      - alert: RQWorkerHighMemory
+        expr: container_memory_usage_bytes{container="rq-worker"} > 7516192768  # 7 GB
+        for: 30m
+        labels:
+          severity: warning
+          category: worker
+        annotations:
+          summary: "RQ Worker memory usage is high"
+          description: |
+            RQ Worker container is using more than 7 GB of memory for 30 minutes.
+            Current usage: {{ $value | humanize1024 }}B
+            This may indicate memory leak or large pipeline job.
+            Action: Monitor if memory continues to grow. Restart if > 10 GB.
+
+      # 10. RQ Worker Queue Backed Up
+      - alert: RQQueueBackedUp
+        expr: rq_queue_length > 10
+        for: 10m
+        labels:
+          severity: warning
+          category: worker
+        annotations:
+          summary: "RQ job queue has {{ $value }} pending jobs"
+          description: |
+            Redis Queue has more than 10 pending jobs for 10 minutes.
+            Current queue length: {{ $value }}
+            Action: Check if RQ worker is running and processing jobs.
+
+  # ===========================================
+  # KAFKA ALERTS
+  # ===========================================
+  - name: kafka
+    interval: 60s
+    rules:
+      # 11. Kafka Consumer Lag
+      - alert: KafkaConsumerLag
+        expr: kafka_consumer_lag > 10000
+        for: 5m
+        labels:
+          severity: warning
+          category: streaming
+        annotations:
+          summary: "Kafka consumer lag is high"
+          description: |
+            Kafka consumer has lag of {{ $value }} messages for 5 minutes.
+            This means weather data is not being processed in real-time.
+            Action: Check if consumer is running and not rate-limited.
+
+      # 12. Kafka Broker Down
+      - alert: KafkaBrokerDown
+        expr: up{job="kafka"} == 0
+        for: 2m
+        labels:
+          severity: warning
+          category: streaming
+        annotations:
+          summary: "Kafka broker is down"
+          description: |
+            Kafka broker is unreachable for 2 minutes.
+            Weather data collection will be paused.
+            Action: Check kafka container and zookeeper.
+
+  # ===========================================
+  # DATABASE PERFORMANCE ALERTS
+  # ===========================================
+  - name: database_performance
+    interval: 60s
+    rules:
+      # 13. PostgreSQL Too Many Connections
+      - alert: PostgreSQLTooManyConnections
+        expr: pg_stat_database_numbackends / pg_settings_max_connections * 100 > 80
+        for: 5m
+        labels:
+          severity: warning
+          category: database
+        annotations:
+          summary: "PostgreSQL is using {{ $value }}% of max connections"
+          description: |
+            Database connection pool is at {{ $value | printf "%.1f" }}% capacity.
+            This may cause connection errors.
+            Action: Increase max_connections or check for connection leaks.
+
+      # 14. PostgreSQL High Query Time
+      - alert: PostgreSQLSlowQueries
+        expr: rate(pg_stat_database_tup_fetched[5m]) / rate(pg_stat_database_tup_returned[5m]) < 0.1
+        for: 10m
+        labels:
+          severity: info
+          category: database
+        annotations:
+          summary: "PostgreSQL queries are slow"
+          description: |
+            Database queries are performing poorly (low hit ratio).
+            Action: Check slow query log, optimize indexes.
+
+  # ===========================================
+  # WEATHER DATA ALERTS
+  # ===========================================
+  - name: weather_data
+    interval: 300s  # Check every 5 minutes
+    rules:
+      # 15. Weather Data Not Collected
+      - alert: WeatherDataStale
+        expr: (time() - weather_data_last_timestamp_seconds) > 3600  # 1 hour
+        for: 10m
+        labels:
+          severity: warning
+          category: data
+        annotations:
+          summary: "Weather data has not been updated for {{ $value | humanizeDuration }}"
+          description: |
+            No new weather data has been collected in the last hour.
+            This indicates producer or consumer failure.
+            Action: Check weather-producer and weather-consumer logs.
+
+  # ===========================================
+  # MONITORING SYSTEM ALERTS
+  # ===========================================
+  - name: monitoring
+    interval: 60s
+    rules:
+      # 16. Prometheus Target Down
+      - alert: PrometheusTargetDown
+        expr: up == 0
+        for: 5m
+        labels:
+          severity: info
+          category: monitoring
+        annotations:
+          summary: "Prometheus target {{ $labels.job }} is down"
+          description: |
+            Prometheus cannot scrape metrics from {{ $labels.job }}.
+            Monitoring data will have gaps.
+            Action: Check if exporter is running and accessible.
+
+      # 17. Alertmanager Down
+      - alert: AlertmanagerDown
+        expr: up{job="alertmanager"} == 0
+        for: 5m
+        labels:
+          severity: critical
+          category: monitoring
+        annotations:
+          summary: "Alertmanager is down - NO ALERTS WILL BE SENT"
+          description: |
+            Alertmanager is not running. Critical alerts will not be delivered.
+            Action: IMMEDIATE - Restart alertmanager service.

@@ -1,0 +1,19 @@
+.leaflet-container {
+  height: 100%;
+  width: 100%;
+  border-radius: 8px;
+}
+
+.weather-popup {
+  font-size: 14px;
+}
+
+.weather-popup h3 {
+  margin: 0 0 10px 0;
+  font-size: 16px;
+  color: #333;
+}
+
+.weather-popup p {
+  margin: 5px 0;
+}

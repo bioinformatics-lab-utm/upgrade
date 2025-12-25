@@ -1,0 +1,260 @@
+@startuml nextflow_pipeline_detailed
+
+title Nextflow Metagenomics Pipeline v2.0 - Detailed Flow\nWith Contig Filtering and Dereplication
+
+skinparam activity {
+  BackgroundColor<<QC>> #E3F2FD
+  BackgroundColor<<Assembly>> #FFF3E0
+  BackgroundColor<<Filter>> #E8F5E9
+  BackgroundColor<<Mapping>> #F3E5F5
+  BackgroundColor<<Binning>> #E0F2F1
+  BackgroundColor<<Quality>> #FFF9C4
+  BackgroundColor<<Annotation>> #FCE4EC
+  BorderColor #455A64
+  FontSize 11
+}
+
+start
+
+partition "Stage 1: Quality Control" {
+  :NANOPLOT<<QC>>
+  Read quality metrics
+  Length distribution
+  GC content;
+  
+  :FILTLONG<<QC>>
+  Filter reads:
+  - Min length: 1000bp
+  - Keep: 90% best quality
+  - Min Q-score: 10;
+}
+
+partition "Stage 2: Assembly" {
+  :FLYE<<Assembly>>
+  De novo assembly
+  Meta mode for metagenomes
+  **Outputs raw contigs**
+  (various lengths);
+  
+  note right
+    Raw assembly may contain
+    very short contigs
+  end note
+}
+
+partition "Stage 3: Contig Filtering ⭐NEW" {
+  :FILTER_CONTIGS<<Filter>>
+  **seqkit-based filtering**
+  Remove contigs < 1000bp
+  
+  Input: raw assembly
+  Output: filtered assembly
+  
+  Generates filter_stats.txt;
+  
+  note right
+    This step improves binning
+    by removing noise
+  end note
+  
+  :GUNZIP<<Filter>>
+  Decompress for downstream
+  (PROKKA, DEEPARG need uncompressed);
+}
+
+partition "Stage 4: Mapping & Stats" {
+  fork
+    :BWA_MAPPING<<Mapping>>
+    Align reads to **filtered** contigs
+    Calculate coverage per contig
+    Output: BAM + BAI;
+  fork again
+    :ASSEMBLY_STATS<<Mapping>>
+    Stats on **filtered** assembly:
+    N50, L50, GC%, total length;
+  end fork
+  
+  note right
+    All downstream analyses
+    use filtered contigs only
+  end note
+}
+
+partition "Stage 5: Genome Binning" {
+  fork
+    :METABAT2<<Binning>>
+    Coverage + composition binning
+    Additional filter: ≥2500bp
+    **Outputs multiple bins**
+    (bin.1, bin.2, bin.unbinned, etc.);
+  fork again
+    :CONCOCT<<Binning>>
+    Composition binning
+    Chunks contigs into 10kb pieces
+    Additional filter: ≥1000bp
+    **May output 0-N bins**;
+  end fork
+}
+
+partition "Stage 6: Bin Quality Assessment" {
+  fork
+    :CHECKM_METABAT2<<Quality>>
+    Assess completeness
+    Check contamination
+    **Outputs summary.tsv**;
+  fork again
+    :CHECKM_CONCOCT<<Quality>>
+    Quality validation
+    **May be empty if no bins**;
+  end fork
+  
+  note right
+    CheckM uses marker genes
+    to estimate quality
+  end note
+}
+
+partition "Stage 6.5: Bin Quality Filtering" {
+  :BIN_FILTER<<Quality>>
+  Filter by quality thresholds:
+  - Completeness >50%
+  - Contamination <10%
+  
+  **Can be disabled:**
+  --skip_bin_quality_filter true
+  
+  If disabled: passes all bins;
+  
+  note right
+    Filters out:
+    - lowDepth bins
+    - tooShort bins
+    - unbinned sequences
+    - low quality bins
+  end note
+}
+
+partition "Stage 6.6: Dereplication ⭐NEW" {
+  :DREP<<Quality>>
+  ANI-based genome clustering
+  Remove redundant genomes
+  
+  Parameters:
+  - ANI threshold: 0.95 (default)
+  - Completeness weight: 1
+  - Contamination weight: 5
+  
+  **Selects best representative
+  from each cluster**;
+  
+  note right
+    Combines bins from
+    MetaBAT2 + CONCOCT
+    Removes near-duplicates
+  end note
+}
+
+partition "Stage 7: Per-Bin Annotation" {
+  :FlatMap Dereplicated Bins
+  Create per-bin channels
+  [sample_id, bin_name, bin.fa];
+  
+  fork
+    :PROKKA<<Annotation>>
+    **For each bin:**
+    Structural annotation
+    Gene calling
+    Outputs: GFF, FAA, GBK, FNA
+    ~2000 genes per bin;
+  fork again
+    :ABRICATE<<Annotation>>
+    **For each bin:**
+    AMR gene detection
+    Databases: CARD, NCBI, ResFinder
+    Outputs: TSV with hits;
+  fork again
+    :DEEPARG<<Annotation>>
+    **For each bin:**
+    ML-based ARG prediction
+    Outputs: ARG annotations;
+  end fork
+  
+  note right
+    All annotation runs
+    in parallel per bin
+  end note
+}
+
+partition "Stage 8: Taxonomic Classification (Optional)" {
+  if (Kraken2 DB?) then (yes)
+    fork
+      :KRAKEN2_METABAT2<<Annotation>>
+      Classify MetaBAT2 bins;
+    fork again
+      :KRAKEN2_CONCOCT<<Annotation>>
+      Classify CONCOCT bins;
+    end fork
+    
+    if (Bracken DB?) then (yes)
+      fork
+        :BRACKEN_METABAT2<<Annotation>>
+        Species abundance;
+      fork again
+        :BRACKEN_CONCOCT<<Annotation>>
+        Species abundance;
+      fork again
+        :BRACKEN_COMBINED_REPORT<<Annotation>>
+        Merge results;
+      end fork
+    endif
+  endif
+  
+  if (GTDB-Tk DB?) then (yes)
+    :GTDBTK_CLASSIFY<<Annotation>>
+    Bacterial/Archaeal taxonomy
+    Phylogenetic placement;
+  endif
+}
+
+:Results Output;
+
+note right
+  **Directory structure:**
+  01_QC/ - quality reports
+  02_filtered/ - filtered reads
+  03_assembly/ - contigs
+  04_filtered_contigs/ - NEW
+  05_mapping/ - BAM files
+  06_bins/ - raw bins
+  07_filtered_bins/ - quality bins
+  08_dereplicated/ - DREP output
+  09_annotation/
+    prokka/bin_name/
+    abricate/bin_name/
+    deeparg/bin_name/
+  10_taxonomy/ (optional)
+end note
+
+stop
+
+legend right
+  **Pipeline v2.0 Key Changes**
+  [+] FILTER_CONTIGS (Stage 3): Pre-binning contig filter
+  [+] DREP (Stage 6.6): Genome dereplication
+  [+] --skip_bin_quality_filter: Flexible QC
+  [+] Improved empty bin handling
+  [+] Fixed DREP input format
+  
+  **Process Count**
+  Core: 15 processes
+  + Kraken2/Bracken: +6 optional
+  + GTDB-Tk: +1 optional
+  Total: Up to 22 processes
+  
+  **Typical Runtime**
+  Small (150MB): 8-10 min
+  Medium (500MB): 15-20 min
+  Large (3.5GB): 30-60 min
+endlegend
+
+@enduml

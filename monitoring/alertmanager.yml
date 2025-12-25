@@ -1,0 +1,158 @@
+# Alertmanager configuration for UPGRADE Genomics Platform
+# Documentation: https://prometheus.io/docs/alerting/latest/configuration/
+
+global:
+  resolve_timeout: 5m
+  
+  # SMTP configuration disabled (uncomment to enable email alerts)
+  # smtp_from: '${SMTP_FROM_EMAIL}'
+  # smtp_smarthost: '${SMTP_HOST}:${SMTP_PORT}'
+  # smtp_auth_username: '${SMTP_USER}'
+  # smtp_auth_password: '${SMTP_PASSWORD}'
+  # smtp_require_tls: true
+
+# Route configuration - how alerts are grouped and sent
+route:
+  receiver: 'default-receiver'
+  group_by: ['alertname', 'severity']
+  group_wait: 30s        # Wait before sending first notification
+  group_interval: 5m     # Wait before sending batch of new alerts
+  repeat_interval: 12h   # Repeat notification interval
+  
+  # Child routes for specific alert types
+  routes:
+    # Critical alerts - immediate notification
+    - receiver: 'critical-alerts'
+      match:
+        severity: critical
+      group_wait: 10s
+      repeat_interval: 4h
+      continue: true  # Also send to default receiver
+    
+    # Pipeline failures - immediate notification
+    - receiver: 'pipeline-alerts'
+      match:
+        alertname: 'PipelineFailed'
+      group_wait: 10s
+      repeat_interval: 6h
+    
+    # Infrastructure alerts
+    - receiver: 'infrastructure-alerts'
+      match_re:
+        alertname: 'ServiceDown|DatabaseDown|DiskSpaceLow'
+      group_wait: 20s
+      repeat_interval: 6h
+
+# Receivers - where alerts are sent
+receivers:
+  # Default receiver - logs to console (email disabled)
+  - name: 'default-receiver'
+    # Email notifications disabled - uncomment to enable
+    # email_configs:
+    #   - to: '${ALERT_EMAIL_TO}'
+    #     send_resolved: true
+    #     headers:
+    #       Subject: '🔔 UPGRADE Alert: {{ .GroupLabels.alertname }}'
+        html: |
+          <!DOCTYPE html>
+          <html>
+          <head>
+            <style>
+              body { font-family: Arial, sans-serif; line-height: 1.6; }
+              .alert { padding: 15px; margin: 10px 0; border-radius: 5px; }
+              .critical { background-color: #ffebee; border-left: 5px solid #f44336; }
+              .warning { background-color: #fff3e0; border-left: 5px solid #ff9800; }
+              .info { background-color: #e3f2fd; border-left: 5px solid #2196f3; }
+              .resolved { background-color: #e8f5e9; border-left: 5px solid #4caf50; }
+              .label { display: inline-block; padding: 3px 8px; margin: 2px; 
+                      background-color: #e0e0e0; border-radius: 3px; font-size: 0.9em; }
+            </style>
+          </head>
+          <body>
+            <h2>🚨 Alert Notification</h2>
+            {{ range .Alerts }}
+            <div class="alert {{ if eq .Status "resolved" }}resolved{{ else }}{{ .Labels.severity }}{{ end }}">
+              <h3>{{ .Labels.alertname }}</h3>
+              <p><strong>Status:</strong> {{ .Status }}</p>
+              <p><strong>Severity:</strong> {{ .Labels.severity }}</p>
+              <p><strong>Instance:</strong> {{ .Labels.instance }}</p>
+              <p><strong>Description:</strong> {{ .Annotations.description }}</p>
+              <p><strong>Summary:</strong> {{ .Annotations.summary }}</p>
+              {{ if .Labels }}
+              <p><strong>Labels:</strong><br>
+              {{ range .Labels.SortedPairs }}
+                <span class="label">{{ .Name }}={{ .Value }}</span>
+              {{ end }}
+              </p>
+              {{ end }}
+              <p><strong>Started:</strong> {{ .StartsAt.Format "2006-01-02 15:04:05" }}</p>
+              {{ if eq .Status "resolved" }}
+              <p><strong>Resolved:</strong> {{ .EndsAt.Format "2006-01-02 15:04:05" }}</p>
+              {{ end }}
+            </div>
+            {{ end }}
+            <hr>
+            <p style="color: #666; font-size: 0.9em;">
+              This is an automated alert from UPGRADE Genomics Platform.<br>
+              View Prometheus: <a href="http://localhost:9090">http://localhost:9090</a><br>
+              View Grafana: <a href="http://localhost:3001">http://localhost:3001</a>
+            </p>
+          </body>
+          </html>
+
+  # Critical alerts - high priority (email disabled)
+  - name: 'critical-alerts'
+    # email_configs:
+    #   - to: '${ALERT_EMAIL_TO}'
+    #     send_resolved: true
+    #     headers:
+    #       Subject: '🚨 CRITICAL: {{ .GroupLabels.alertname }}'
+    #       Priority: 'urgent'
+
+  # Pipeline-specific alerts (email disabled)
+  - name: 'pipeline-alerts'
+    # email_configs:
+    #   - to: '${ALERT_EMAIL_TO}'
+    #     send_resolved: true
+    #     headers:
+    #       Subject: '⚠️ Pipeline Alert: {{ .GroupLabels.alertname }}'
+
+  # Infrastructure alerts (email disabled)
+  - name: 'infrastructure-alerts'
+    # email_configs:
+    #   - to: '${ALERT_EMAIL_TO}'
+    #     send_resolved: true
+    #     headers:
+    #       Subject: '🔧 Infrastructure Alert: {{ .GroupLabels.alertname }}'
+
+  # Slack receiver (optional - uncomment to use)
+  # - name: 'slack-receiver'
+  #   slack_configs:
+  #     - api_url: '${SLACK_WEBHOOK_URL}'
+  #       channel: '#alerts'
+  #       title: '{{ .GroupLabels.alertname }}'
+  #       text: |
+  #         *Alert:* {{ .GroupLabels.alertname }}
+  #         *Severity:* {{ .CommonLabels.severity }}
+  #         *Status:* {{ .Status }}
+  #         {{ range .Alerts }}
+  #         *Instance:* {{ .Labels.instance }}
+  #         *Description:* {{ .Annotations.description }}
+  #         {{ end }}
+  #       send_resolved: true
+
+# Inhibition rules - prevent duplicate notifications
+inhibit_rules:
+  # Inhibit warning if critical is firing
+  - source_match:
+      severity: 'critical'
+    target_match:
+      severity: 'warning'
+    equal: ['alertname', 'instance']
+  
+  # Inhibit info if warning is firing
+  - source_match:
+      severity: 'warning'
+    target_match:
+      severity: 'info'
+    equal: ['alertname', 'instance']

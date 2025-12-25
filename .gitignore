@@ -23,6 +23,14 @@ nextflow.config.local
 singularity/
 
 # ============================================
+# SECRETS
+# ============================================
+.env.secrets
+.env.local
+*.secrets
+secrets/*.txt
+
+# ============================================
 # PYTHON
 # ============================================
 __pycache__/
@@ -123,6 +131,9 @@ zookeeper_data/
 redis_data/
 minio_data/
 airflow_logs/
+
+# Docker compose with secrets
+docker-compose.secrets.yml
 
 # Minio system
 
@@ -397,3 +408,18 @@ api/*.sqlite*
 backend/user_data/
 api/user_data/
 genomic_uploads/
+# Large documentation files
+*.docx
+sectiunea_temp/
+
+# Helper documentation
+*_IMPROVEMENTS.md
+
+# Old pipeline files
+*.old
+
+# Server-only configuration (private repo)
+.env.example
+generate-secrets.sh
+setup-database.sh
+diagnose.sh

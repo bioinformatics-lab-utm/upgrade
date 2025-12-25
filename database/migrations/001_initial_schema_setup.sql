@@ -4,14 +4,22 @@
 -- Version: 1.0.0
 -- Applied: 2025-01-01
 
--- Create user upgrade if not exists (for weather-consumer connection)
+-- User 'upgrade' is automatically created by PostgreSQL during container initialization
+-- using POSTGRES_USER and POSTGRES_PASSWORD_FILE environment variables.
+-- No need to create it here. This section is kept for documentation purposes.
+--
+-- The upgrade user is created with:
+-- - Username: upgrade (from POSTGRES_USER)
+-- - Password: read from /run/secrets/postgres_password (from POSTGRES_PASSWORD_FILE)
+-- - Database: upgrade_db (from POSTGRES_DB)
+--
 DO $$
 BEGIN
-    IF NOT EXISTS (SELECT FROM pg_catalog.pg_roles WHERE rolname = 'upgrade') THEN
-        CREATE USER upgrade WITH PASSWORD 'upgrade123' CREATEDB CREATEROLE;
-        RAISE NOTICE 'User upgrade created successfully';
+    -- Just verify that the upgrade user exists
+    IF EXISTS (SELECT FROM pg_catalog.pg_roles WHERE rolname = 'upgrade') THEN
+        RAISE NOTICE 'User upgrade exists and is configured';
     ELSE
-        RAISE NOTICE 'User upgrade already exists';
+        RAISE WARNING 'User upgrade does not exist - this should not happen!';
     END IF;
 END
 $$;

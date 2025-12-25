@@ -1,277 +1,285 @@
-import React, { useState, useEffect, useCallback } from 'react';
-import { MapContainer, TileLayer, Marker, Popup, CircleMarker } from 'react-leaflet';
-import L from 'leaflet';
-import axios from 'axios';
-import './App.css'; // Импортируем CSS
+import React, { useState, useEffect } from 'react';
+import { Routes, Route, Link, useLocation, Navigate } from 'react-router-dom';
+import PipelineDashboard from './components/PipelineDashboard';
+import GenomicsMap from './components/GenomicsMap';
+import ResultsViewer from './components/ResultsViewer';
+import PipelineResultsDashboard from './components/PipelineResultsDashboard';
+import PipelineMonitor from './components/PipelineMonitor';
+import Login from './components/Login';
+import Register from './components/Register';
+import VerifyEmail from './components/VerifyEmail';
+import API from './config/api';
+import 'leaflet/dist/leaflet.css';
+import './App.css';
 
-// Fix for default markers in react-leaflet
-delete L.Icon.Default.prototype._getIconUrl;
-L.Icon.Default.mergeOptions({
-  iconRetinaUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-icon-2x.png',
-  iconUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-icon.png',
-  shadowUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-shadow.png',
-});
-
-const API_BASE = 'http://localhost:8000/api';
+// Protected Route Component
+function ProtectedRoute({ children }) {
+  const token = localStorage.getItem('token');
+  
+  if (!token) {
+    return <Navigate to="/login" replace />;
+  }
+  
+  return children;
+}
 
 function App() {
-  const [weatherData, setWeatherData] = useState([]);
-  const [locations, setLocations] = useState([]);
-  const [stats, setStats] = useState({});
-  const [loading, setLoading] = useState(true);
-  const [selectedCity, setSelectedCity] = useState(null);
-  const [lastUpdate, setLastUpdate] = useState(new Date());
-  const [error, setError] = useState(null);
-
-  const loadData = useCallback(async () => {
-    try {
-      setError(null);
-      const [weatherRes, locationsRes, statsRes] = await Promise.all([
-        axios.get(`${API_BASE}/weather/latest`),
-        axios.get(`${API_BASE}/locations`),
-        axios.get(`${API_BASE}/weather/stats`)
-      ]);
-      
-      if (weatherRes.data.success) {
-        setWeatherData(weatherRes.data.data);
-      }
-      if (locationsRes.data.success) {
-        setLocations(locationsRes.data.data);
-      }
-      if (statsRes.data.success) {
-        setStats(statsRes.data.data);
-      }
-      
-      setLastUpdate(new Date());
-    } catch (error) {
-      console.error('Error loading data:', error);
-      setError('Failed to load data. Please try again.');
-    } finally {
-      setLoading(false);
-    }
-  }, []);
+  const location = useLocation();
+  const [systemStatus, setSystemStatus] = useState({ health: 'healthy', samples: 0, pipelines: 0 });
+  const [isScrolled, setIsScrolled] = useState(false);
+  const [user, setUser] = useState(null);
 
   useEffect(() => {
-    loadData();
-    const interval = setInterval(loadData, 300000); // Refresh every 5 minutes
-    return () => clearInterval(interval);
-  }, [loadData]);
+    // Check if user is logged in
+    const storedUser = localStorage.getItem('user');
+    if (storedUser) {
+      setUser(JSON.parse(storedUser));
+    }
 
-  const getTemperatureColor = (temp) => {
-    if (temp < 0) return '#0066cc';
-    if (temp < 10) return '#0099ff';
-    if (temp < 20) return '#00cc00';
-    if (temp < 30) return '#ffcc00';
-    return '#ff6600';
+    // Fetch system status
+    fetch(API.endpoints.health)
+      .then(res => res.json())
+      .then(data => setSystemStatus({ 
+        health: data.status,
+        samples: 142, // Mock data - replace with real API
+        pipelines: 24 
+      }))
+      .catch(() => setSystemStatus({ health: 'error', samples: 0, pipelines: 0 }));
+
+    // Scroll effect
+    const handleScroll = () => setIsScrolled(window.scrollY > 10);
+    window.addEventListener('scroll', handleScroll);
+    return () => window.removeEventListener('scroll', handleScroll);
+  }, []);
+
+  const handleLogout = () => {
+    localStorage.removeItem('token');
+    localStorage.removeItem('user');
+    setUser(null);
+    window.location.href = '/login';
   };
 
-  const formatDateTime = (dateString) => {
-    return new Date(dateString).toLocaleString();
+  const handleLogin = (userData, token) => {
+    setUser(userData);
+    // Token already stored by Login/Register components
   };
 
-  const formatNumber = (num) => {
-    return num != null ? Number(num).toFixed(1) : 'N/A';
-  };
-
-  if (loading) {
-    return (
-      <div className="app">
-        <div className="header">
-          <h1>UPGRADE - Environmental Genomic Surveillance</h1>
-        </div>
-        <div className="loading">Loading data...</div>
-      </div>
-    );
-  }
+  // Hide navigation on auth pages
+  const isAuthPage = location.pathname === '/login' || location.pathname === '/register';
 
   return (
     <div className="app">
-      <div className="header">
-        <h1>UPGRADE - Environmental Genomic Surveillance</h1>
-        <p>Real-time environmental monitoring across Romania and Moldova</p>
-      </div>
-      
-      <div className="main-content">
-        <div className="sidebar">
-          <h3>System Statistics</h3>
-          <div className="stats-grid">
-            <div className="stat-card">
-              <div className="stat-value">{locations.length}</div>
-              <div className="stat-label">Locations</div>
+      {/* Enhanced Navigation - Hide on auth pages */}
+      {!isAuthPage && (
+        <nav className={`app-nav ${isScrolled ? 'scrolled' : ''}`}>
+        <div className="nav-container">
+          <div className="app-brand">
+            <div className="brand-logo">
+              <svg width="40" height="40" viewBox="0 0 40 40" fill="none" xmlns="http://www.w3.org/2000/svg">
+                <defs>
+                  <linearGradient id="dna-gradient" x1="0%" y1="0%" x2="100%" y2="100%">
+                    <stop offset="0%" stopColor="#00d4ff" />
+                    <stop offset="50%" stopColor="#0099ff" />
+                    <stop offset="100%" stopColor="#0052ff" />
+                  </linearGradient>
+                  <filter id="glow">
+                    <feGaussianBlur stdDeviation="2" result="coloredBlur"/>
+                    <feMerge>
+                      <feMergeNode in="coloredBlur"/>
+                      <feMergeNode in="SourceGraphic"/>
+                    </feMerge>
+                  </filter>
+                </defs>
+                {/* DNA Helix Icon */}
+                <path d="M8 10 Q 12 6, 16 10 T 24 10 T 32 10" stroke="url(#dna-gradient)" strokeWidth="2.5" fill="none" strokeLinecap="round"/>
+                <path d="M8 20 Q 12 16, 16 20 T 24 20 T 32 20" stroke="url(#dna-gradient)" strokeWidth="2.5" fill="none" strokeLinecap="round"/>
+                <path d="M8 30 Q 12 26, 16 30 T 24 30 T 32 30" stroke="url(#dna-gradient)" strokeWidth="2.5" fill="none" strokeLinecap="round"/>
+                <circle cx="8" cy="10" r="2" fill="#00d4ff" filter="url(#glow)"/>
+                <circle cx="16" cy="10" r="2" fill="#0099ff" filter="url(#glow)"/>
+                <circle cx="24" cy="10" r="2" fill="#0052ff" filter="url(#glow)"/>
+                <circle cx="32" cy="10" r="2" fill="#00d4ff" filter="url(#glow)"/>
+                <circle cx="12" cy="20" r="2" fill="#0099ff" filter="url(#glow)"/>
+                <circle cx="20" cy="20" r="2" fill="#0052ff" filter="url(#glow)"/>
+                <circle cx="28" cy="20" r="2" fill="#00d4ff" filter="url(#glow)"/>
+                <circle cx="8" cy="30" r="2" fill="#0099ff" filter="url(#glow)"/>
+                <circle cx="16" cy="30" r="2" fill="#0052ff" filter="url(#glow)"/>
+                <circle cx="24" cy="30" r="2" fill="#00d4ff" filter="url(#glow)"/>
+                <circle cx="32" cy="30" r="2" fill="#0099ff" filter="url(#glow)"/>
+              </svg>
             </div>
-            <div className="stat-card">
-              <div className="stat-value">{stats.total_measurements || 0}</div>
-              <div className="stat-label">Total Measurements</div>
-            </div>
-            <div className="stat-card">
-              <div className="stat-value">{formatNumber(stats.avg_temperature)}°C</div>
-              <div className="stat-label">Avg Temperature</div>
-            </div>
-            <div className="stat-card">
-              <div className="stat-value">{formatNumber(stats.avg_humidity)}%</div>
-              <div className="stat-label">Avg Humidity</div>
+            <div className="brand-text">
+              <h1>UPGRADE</h1>
+              <span className="brand-subtitle">
+                <span className="subtitle-icon">⚛</span>
+                Urban Pathogen Genomic Surveillance Platform
+              </span>
             </div>
           </div>
 
-          <h3>Current Weather</h3>
-          {error && <div style={{color: 'red', marginBottom: '1rem'}}>{error}</div>}
-          <div className="city-list">
-            {weatherData.map((weather, index) => (
-              <div 
-                key={index} 
-                className="city-item"
-                style={{ 
-                  cursor: 'pointer',
-                  backgroundColor: selectedCity === weather.city ? '#e8f4f8' : 'transparent'
-                }}
-                onClick={() => setSelectedCity(weather.city)}
-              >
-                <div>
-                  <strong>{weather.city}</strong>
-                  <div style={{ fontSize: '0.8rem', color: '#666' }}>
-                    {weather.country}
-                  </div>
-                </div>
-                <div style={{ textAlign: 'right' }}>
-                  <div style={{ 
-                    color: getTemperatureColor(weather.temperature),
-                    fontWeight: 'bold'
-                  }}>
-                    {formatNumber(weather.temperature)}°C
-                  </div>
-                  <div style={{ fontSize: '0.8rem', color: '#666' }}>
-                    {formatNumber(weather.humidity)}% humidity
-                  </div>
-                </div>
+          {/* System Status Indicator */}
+          <div className="system-status">
+            <div className="status-item">
+              <div className={`status-indicator status-${systemStatus.health}`}></div>
+              <span className="status-label">System</span>
+            </div>
+            <div className="status-divider"></div>
+            <div className="status-item">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                <path d="M9 11l3 3L22 4" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+              </svg>
+              <span className="status-value">{systemStatus.samples}</span>
+              <span className="status-label">Samples</span>
+            </div>
+            <div className="status-divider"></div>
+            <div className="status-item">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                <rect x="3" y="3" width="18" height="18" rx="2" strokeWidth="2"/>
+                <line x1="3" y1="9" x2="21" y2="9" strokeWidth="2"/>
+                <line x1="9" y1="21" x2="9" y2="9" strokeWidth="2"/>
+              </svg>
+              <span className="status-value">{systemStatus.pipelines}</span>
+              <span className="status-label">Active</span>
+            </div>
+          </div>
+
+          {/* Navigation Links */}
+          <div className="nav-links">
+            <Link
+              to="/"
+              className={`nav-link ${location.pathname === '/' ? 'active' : ''}`}
+            >
+              <div className="nav-link-icon">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                  <path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+                  <circle cx="12" cy="10" r="3" strokeWidth="2"/>
+                </svg>
               </div>
-            ))}
+              <div className="nav-link-content">
+                <span className="nav-link-title">Surveillance Map</span>
+                <span className="nav-link-desc">Geographic distribution</span>
+              </div>
+            </Link>
+
+            <Link
+              to="/pipeline"
+              className={`nav-link ${location.pathname === '/pipeline' ? 'active' : ''}`}
+            >
+              <div className="nav-link-icon">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                  <rect x="3" y="3" width="7" height="7" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+                  <rect x="14" y="3" width="7" height="7" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+                  <rect x="14" y="14" width="7" height="7" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+                  <rect x="3" y="14" width="7" height="7" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+                </svg>
+              </div>
+              <div className="nav-link-content">
+                <span className="nav-link-title">Analysis Pipeline</span>
+                <span className="nav-link-desc">Workflow management</span>
+              </div>
+            </Link>
+
+            <Link
+              to="/results"
+              className={`nav-link ${location.pathname === '/results' ? 'active' : ''}`}
+            >
+              <div className="nav-link-icon">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                  <path d="M3 3v18h18" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+                  <path d="M18.7 8l-5.1 5.2-2.8-2.7L7 14.3" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+                </svg>
+              </div>
+              <div className="nav-link-content">
+                <span className="nav-link-title">Results & Reports</span>
+                <span className="nav-link-desc">Data visualization</span>
+              </div>
+            </Link>
           </div>
 
-          <div style={{ marginTop: '1rem', fontSize: '0.8rem', color: '#666' }}>
-            Last updated: {formatDateTime(lastUpdate)}
-          </div>
-        </div>
-
-        <div className="map-container">
-          <button className="refresh-button" onClick={loadData}>
-            Refresh Data
-          </button>
-          
-          <div className="legend">
-            <h4>Temperature Legend</h4>
-            <div className="legend-item">
-              <div className="legend-color" style={{backgroundColor: '#0066cc'}}></div>
-              <span>&lt; 0°C</span>
-            </div>
-            <div className="legend-item">
-              <div className="legend-color" style={{backgroundColor: '#0099ff'}}></div>
-              <span>0-10°C</span>
-            </div>
-            <div className="legend-item">
-              <div className="legend-color" style={{backgroundColor: '#00cc00'}}></div>
-              <span>10-20°C</span>
-            </div>
-            <div className="legend-item">
-              <div className="legend-color" style={{backgroundColor: '#ffcc00'}}></div>
-              <span>20-30°C</span>
-            </div>
-            <div className="legend-item">
-              <div className="legend-color" style={{backgroundColor: '#ff6600'}}></div>
-              <span>&gt; 30°C</span>
-            </div>
-          </div>
-          
-          <MapContainer
-            center={[46.5, 27.0]}
-            zoom={6}
-            style={{ height: '100%', width: '100%' }}
-          >
-            <TileLayer
-              url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
-              attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
-            />
-            
-            {weatherData.map((weather, index) => (
-              <CircleMarker
-                key={index}
-                center={[weather.latitude, weather.longitude]}
-                radius={15}
-                fillColor={getTemperatureColor(weather.temperature)}
-                color="white"
-                weight={2}
-                opacity={1}
-                fillOpacity={0.8}
-              >
-                <Popup>
-                  <div style={{ minWidth: '200px' }}>
-                    <h4 style={{ margin: '0 0 10px 0' }}>
-                      {weather.city}, {weather.country}
-                    </h4>
-                    <table style={{ width: '100%', fontSize: '0.9rem' }}>
-                      <tbody>
-                        <tr>
-                          <td><strong>Temperature:</strong></td>
-                          <td>{formatNumber(weather.temperature)}°C</td>
-                        </tr>
-                        <tr>
-                          <td><strong>Feels like:</strong></td>
-                          <td>{formatNumber(weather.apparent_temperature)}°C</td>
-                        </tr>
-                        <tr>
-                          <td><strong>Humidity:</strong></td>
-                          <td>{formatNumber(weather.humidity)}%</td>
-                        </tr>
-                        <tr>
-                          <td><strong>Wind Speed:</strong></td>
-                          <td>{formatNumber(weather.windspeed)} m/s</td>
-                        </tr>
-                        <tr>
-                          <td><strong>Pressure:</strong></td>
-                          <td>{formatNumber(weather.pressure_msl)} hPa</td>
-                        </tr>
-                        <tr>
-                          <td><strong>Cloud Cover:</strong></td>
-                          <td>{weather.cloud_cover || 'N/A'}%</td>
-                        </tr>
-                        <tr>
-                          <td><strong>UV Index:</strong></td>
-                          <td>{formatNumber(weather.uv_index)}</td>
-                        </tr>
-                      </tbody>
-                    </table>
-                    <div style={{ marginTop: '10px', fontSize: '0.8rem', color: '#666' }}>
-                      Last update: {formatDateTime(weather.measurement_datetime)}
-                    </div>
-                    <div style={{ fontSize: '0.8rem', color: '#666' }}>
-                      Quality: {weather.quality_score ? (weather.quality_score * 100).toFixed(0) + '%' : 'N/A'}
-                    </div>
+          {/* User Actions */}
+          <div className="nav-actions">
+            {user ? (
+              <>
+                <button className="action-btn" title="Notifications">
+                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                    <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+                    <path d="M13.73 21a2 2 0 0 1-3.46 0" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+                  </svg>
+                  <span className="notification-badge">3</span>
+                </button>
+                <div className="user-profile">
+                  <div className="user-avatar" title={user.username}>
+                    <span>{user.username.substring(0, 2).toUpperCase()}</span>
                   </div>
-                </Popup>
-              </CircleMarker>
-            ))}
-
-            {/* Show all locations without weather data */}
-            {locations
-              .filter(loc => !weatherData.find(w => w.city === loc.city))
-              .map((location, index) => (
-                <Marker
-                  key={`loc-${index}`}
-                  position={[location.latitude, location.longitude]}
-                >
-                  <Popup>
-                    <div>
-                      <h4>{location.city}, {location.country}</h4>
-                      <p>{location.location_name}</p>
-                      <p>Area: {location.campus_area}</p>
-                      <p><em>No recent weather data</em></p>
-                    </div>
-                  </Popup>
-                </Marker>
-              ))
-            }
-          </MapContainer>
+                </div>
+                <button className="action-btn" onClick={handleLogout} title="Logout">
+                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                    <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" strokeWidth="2" strokeLinecap="round"/>
+                    <polyline points="16 17 21 12 16 7" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+                    <line x1="21" y1="12" x2="9" y2="12" strokeWidth="2" strokeLinecap="round"/>
+                  </svg>
+                </button>
+              </>
+            ) : (
+              <Link to="/login" className="btn btn-primary">
+                Login
+              </Link>
+            )}
+          </div>
         </div>
-      </div>
+      </nav>
+      )}
+
+      {/* Main Content Area */}
+      <main className="app-content">
+        <div className="content-wrapper">
+          <Routes>
+            <Route path="/login" element={<Login onLogin={handleLogin} />} />
+            <Route path="/register" element={<Register onLogin={handleLogin} />} />
+            <Route path="/verify-email" element={<VerifyEmail />} />
+            <Route path="/" element={
+              <ProtectedRoute>
+                <GenomicsMap />
+              </ProtectedRoute>
+            } />
+            <Route path="/pipeline" element={
+              <ProtectedRoute>
+                <PipelineDashboard />
+              </ProtectedRoute>
+            } />
+            <Route path="/results" element={
+              <ProtectedRoute>
+                <ResultsViewer />
+              </ProtectedRoute>
+            } />
+            <Route path="/results/:sampleId" element={
+              <ProtectedRoute>
+                <PipelineResultsDashboard />
+              </ProtectedRoute>
+            } />
+            <Route path="/pipeline/:id/monitor" element={
+              <ProtectedRoute>
+                <PipelineMonitor />
+              </ProtectedRoute>
+            } />
+          </Routes>
+        </div>
+      </main>
+
+      {/* Footer - Hide on auth pages */}
+      {!isAuthPage && (
+        <footer className="app-footer">
+          <div className="footer-content">
+            <div className="footer-section">
+              <span className="footer-text">© 2025 UPGRADE Platform</span>
+              <span className="footer-separator">•</span>
+              <span className="footer-text">Build v2.1.0</span>
+            </div>
+            <div className="footer-section">
+              <span className="footer-text">Powered by Nextflow & React</span>
+            </div>
+          </div>
+        </footer>
+      )}
     </div>
   );
 }

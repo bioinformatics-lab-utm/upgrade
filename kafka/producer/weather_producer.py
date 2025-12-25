@@ -6,10 +6,12 @@ import time
 import uuid
 from datetime import datetime, timezone
 from typing import Dict, List, Optional
+from urllib.parse import quote_plus
 
 import aiohttp
 import redis
 import psycopg2
+from psycopg2 import pool
 from kafka import KafkaProducer
 
 logging.basicConfig(level=getattr(logging, os.getenv('LOG_LEVEL', 'INFO')))
@@ -20,8 +22,26 @@ class WeatherProducer:
         # Конфигурация
         self.kafka_servers = os.getenv('KAFKA_BOOTSTRAP_SERVERS', 'kafka:29092').split(',')
         self.open_meteo_url = os.getenv('OPEN_METEO_URL', 'https://api.open-meteo.com/v1/forecast')
-        self.postgres_url = os.getenv('POSTGRES_URL', 'postgresql://upgrade:upgrade123@postgres:5432/upgrade_db')
+
+        # Read password from Docker secret
+        postgres_password = os.getenv('POSTGRES_PASSWORD', '')
+        if not postgres_password and os.path.exists('/run/secrets/postgres_password'):
+            with open('/run/secrets/postgres_password', 'r') as f:
+                postgres_password = f.read().strip()
+
+        # Build postgres URL with URL-encoded password
+        postgres_host = os.getenv('POSTGRES_HOST', 'postgres')
+        postgres_port = os.getenv('POSTGRES_PORT', '5432')
+        postgres_db = os.getenv('POSTGRES_DB', 'upgrade_db')
+        postgres_user = os.getenv('POSTGRES_USER', 'upgrade')
+        self.postgres_url = f'postgresql://{postgres_user}:{quote_plus(postgres_password)}@{postgres_host}:{postgres_port}/{postgres_db}'
+
+        # Read Redis password from Docker secret
         self.redis_password = os.getenv('REDIS_PASSWORD', '')
+        if not self.redis_password and os.path.exists('/run/secrets/redis_password'):
+            with open('/run/secrets/redis_password', 'r') as f:
+                self.redis_password = f.read().strip()
+
         self.collection_interval = int(os.getenv('COLLECTION_INTERVAL_MINUTES', '30'))
         
         # Kafka топики
@@ -32,11 +52,19 @@ class WeatherProducer:
         self.producer = None
         self.redis_client = None
         self.session = None
+        self.db_pool = None  # Connection pool
 
     async def load_cities_from_database(self) -> List[Dict]:
         """Загрузить все города из базы данных"""
+        conn = None
         try:
-            conn = psycopg2.connect(self.postgres_url)
+            # Get connection from pool
+            if not self.db_pool:
+                # Initialize pool if not exists
+                self.db_pool = pool.SimpleConnectionPool(1, 5, self.postgres_url)
+                logger.info("PostgreSQL connection pool initialized (1-5 connections)")
+            
+            conn = self.db_pool.getconn()
             cur = conn.cursor()
             
             # Загружаем ВСЕ активные города без ограничений
@@ -71,7 +99,6 @@ class WeatherProducer:
                 cities.append(city_data)
             
             cur.close()
-            conn.close()
             
             logger.info(f"Loaded {len(cities)} cities from database")
             return cities
@@ -79,6 +106,10 @@ class WeatherProducer:
         except Exception as e:
             logger.error(f"Failed to load cities from database: {e}")
             raise
+        finally:
+            # Always return connection to pool
+            if conn and self.db_pool:
+                self.db_pool.putconn(conn)
 
     async def initialize(self):
         """Инициализация producer"""
@@ -403,6 +434,9 @@ class WeatherProducer:
                 self.producer.close()
             if self.redis_client:
                 self.redis_client.close()
+            if self.db_pool:
+                self.db_pool.closeall()
+                logger.info("PostgreSQL connection pool closed")
             logger.info("Cleanup completed")
         except Exception as e:
             logger.error(f"Error during cleanup: {e}")

@@ -19,11 +19,19 @@ process FILTLONG {
     echo "Input file: ${reads}" >> ${sample_id}_filtlong_log.txt
     echo "Threads: ${task.cpus}" >> ${sample_id}_filtlong_log.txt
     
-    # Count input reads
-    input_reads=\$(zcat ${reads} | wc -l | awk '{print \$1/4}')
+    # Count input reads (handle both gzipped and uncompressed files)
+    if [[ ${reads} == *.gz ]]; then
+        if command -v pigz > /dev/null 2>&1; then
+            input_reads=\$(pigz -dc ${reads} | wc -l | awk '{print \$1/4}')
+        else
+            input_reads=\$(zcat ${reads} | wc -l | awk '{print \$1/4}')
+        fi
+    else
+        input_reads=\$(cat ${reads} | wc -l | awk '{print \$1/4}')
+    fi
     echo "Input reads: \$input_reads" >> ${sample_id}_filtlong_log.txt
     
-    # Run Filtlong with pigz
+    # Run Filtlong with pigz (filtlong handles both gzipped and uncompressed input)
     filtlong \\
         --min_length ${params.filtlong_min_length} \\
         --keep_percent ${params.filtlong_keep_percent} \\
@@ -32,7 +40,11 @@ process FILTLONG {
         ${reads} | pigz -p ${task.cpus} > ${sample_id}_filtered.fastq.gz
     
     # Count output reads
-    output_reads=\$(zcat ${sample_id}_filtered.fastq.gz | wc -l | awk '{print \$1/4}')
+    if command -v pigz > /dev/null 2>&1; then
+        output_reads=\$(pigz -dc ${sample_id}_filtered.fastq.gz | wc -l | awk '{print \$1/4}')
+    else
+        output_reads=\$(zcat ${sample_id}_filtered.fastq.gz | wc -l | awk '{print \$1/4}')
+    fi
     echo "Output reads: \$output_reads" >> ${sample_id}_filtlong_log.txt
     
     echo "Completed: \$(date)" >> ${sample_id}_filtlong_log.txt

@@ -1,0 +1,117 @@
+@startuml nextflow_sequence
+
+title Nextflow Metagenomics Pipeline v2.0 - Data Flow\nWith Contig Filtering and Dereplication
+
+participant "FASTQ\nInput" as Input
+participant "NANOPLOT" as QC
+participant "FILTLONG" as Filter
+participant "FLYE" as Assembly
+participant "FILTER_CONTIGS\n⭐NEW" as FContig
+participant "BWA" as Mapping
+participant "METABAT2" as Bin1
+participant "CONCOCT" as Bin2
+participant "CHECKM" as QC2
+participant "BIN_FILTER" as BFilter
+participant "DREP\n⭐NEW" as Drep
+participant "PROKKA" as Prokka
+participant "ABRICATE" as Abr
+participant "DEEPARG" as Deep
+participant "Results" as Results
+
+Input -> QC: Raw FASTQ reads
+QC -> Filter: Quality report
+Filter -> Assembly: Filtered reads\n(>1000bp, Q>10)
+
+Assembly -> FContig: Raw assembly\n(all contigs)
+
+note right of FContig
+  **NEW STEP**
+  seqkit filters contigs:
+  - Remove < 1000bp
+  - Generate stats report
+  
+  Reduces noise for binning
+end note
+
+FContig -> Mapping: Filtered assembly\n(contigs ≥1000bp)
+FContig -> Bin1: Filtered contigs
+FContig -> Bin2: Filtered contigs
+
+Mapping -> Bin1: BAM + coverage
+Mapping -> Bin2: BAM + coverage
+
+note right of Bin1
+  METABAT2 on filtered contigs:
+  Additional filter: ≥2500bp
+  
+  Creates bins based on:
+  - Coverage patterns
+  - Tetranucleotide frequency
+end note
+
+Bin1 -> QC2: MetaBAT2 bins\n(multiple bins)
+
+note right of Bin2
+  CONCOCT on filtered contigs:
+  Chunks contigs (10kb)
+  Additional filter: ≥1000bp
+  
+  May create 0-N bins
+end note
+
+Bin2 -> QC2: CONCOCT bins\n(0 or more bins)
+
+QC2 -> BFilter: All bins +\nquality metrics
+
+note right of BFilter
+  **Optional filtering**
+  (--skip_bin_quality_filter)
+  
+  Default thresholds:
+  - Completeness >50%
+  - Contamination <10%
+  
+  Removes:
+  - lowDepth, tooShort
+  - unbinned sequences
+  - empty bins
+end note
+
+BFilter -> Drep: Quality bins from\nMetaBAT2 + CONCOCT
+
+note right of Drep
+  **NEW STEP**
+  Genome dereplication:
+  - Cluster by ANI (0.95)
+  - Select best representative
+  - Remove near-duplicates
+  
+  Input: All quality bins
+  Output: Dereplicated set
+end note
+
+Drep -> Prokka: Dereplicated bins\n(unique genomes)
+Drep -> Abr: Dereplicated bins
+Drep -> Deep: Dereplicated bins
+
+note over Prokka, Deep
+  **Per-Bin Annotation**
+  Each dereplicated bin
+  processed in parallel
+end note
+
+Prokka -> Results: Per-bin annotation\n(GFF, FAA, GBK)
+Abr -> Results: Per-bin AMR genes\n(CARD database)
+Deep -> Results: Per-bin ARG predictions\n(ML-based)
+
+note over Results
+  **Organized Results**
+  /prokka/bin_name/
+  /abricate/bin_name/
+  /deeparg/bin_name/
+  
+  Each genome tracked separately
+  No gene mixing between organisms
+end note
+
+@enduml

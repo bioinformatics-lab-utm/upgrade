@@ -1,0 +1,26 @@
+#!/bin/bash
+# UPGRADE CLI Wrapper
+# Uses backend venv with environment variables from project root
+
+# Get script directory and project root
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
+CLI_PATH="$SCRIPT_DIR/cli.py"
+VENV_PATH="$SCRIPT_DIR/.venv"
+
+# Load environment variables from .env if it exists (filter out invalid bash vars)
+if [ -f "$PROJECT_ROOT/.env" ]; then
+    set -a
+    source <(grep -v '^#' "$PROJECT_ROOT/.env" | grep -E '^[A-Z_][A-Z0-9_]*=' | sed 's/\r$//')
+    set +a
+fi
+
+# Check if venv exists
+if [ ! -d "$VENV_PATH" ]; then
+    echo "❌ Virtual environment not found at $VENV_PATH"
+    echo "Run: cd $SCRIPT_DIR && uv venv .venv && uv pip install -r requirements.txt"
+    exit 1
+fi
+
+# Run CLI with venv Python
+"$VENV_PATH/bin/python" "$CLI_PATH" "$@"
