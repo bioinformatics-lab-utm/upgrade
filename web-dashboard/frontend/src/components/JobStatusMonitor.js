@@ -1,8 +1,8 @@
 import React, { useState, useEffect } from 'react';
-import axios from 'axios';
+import api from '../services/api';
 import './JobStatusMonitor.css';
 
-const API_URL = process.env.REACT_APP_API_URL || '';
+const API_URL = '';
 
 const JobStatusMonitor = ({ jobId, pipelineId, onComplete }) => {
   const [jobStatus, setJobStatus] = useState(null);
@@ -23,7 +23,7 @@ const JobStatusMonitor = ({ jobId, pipelineId, onComplete }) => {
 
   const fetchJobStatus = async () => {
     try {
-      const response = await axios.get(`${API_URL}/api/pipeline/job/${jobId}/status`);
+      const response = await api.get(`${API_URL}/api/pipeline/job/${jobId}/status`);
       setJobStatus(response.data);
       setLoading(false);
 
@@ -46,7 +46,7 @@ const JobStatusMonitor = ({ jobId, pipelineId, onComplete }) => {
     }
 
     try {
-      await axios.post(`${API_URL}/api/pipeline/job/${jobId}/cancel`);
+      await api.post(`${API_URL}/api/pipeline/job/${jobId}/cancel`);
       fetchJobStatus(); // Refresh status
     } catch (err) {
       alert(`Failed to cancel job: ${err.message}`);

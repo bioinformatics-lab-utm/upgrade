@@ -1,79 +1,86 @@
 """
-Tests for API authentication routes
+Tests for Auth Routes blueprint
 """
 import pytest
-import asyncio
 from unittest.mock import Mock, AsyncMock, patch
-import sys
-import os
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
-
-from routes.auth import auth_bp
 
 
-@pytest.mark.unit
-class TestAuthRoutes:
-    """Test authentication routes"""
-    
-    @pytest.mark.asyncio
-    async def test_register_success(self, mock_request, sample_user_data, db_conn):
-        """Test successful user registration"""
-        mock_request.json = sample_user_data
-        mock_request.app.ctx.db_pool = Mock()
-        mock_request.app.ctx.db_pool.acquire = AsyncMock(return_value=AsyncMock(__aenter__=AsyncMock(return_value=db_conn)))
+class TestAuthBlueprintSetup:
+    """Tests for auth blueprint configuration"""
+
+    def test_auth_bp_import(self):
+        """Test auth blueprint can be imported"""
+        from routes.auth import auth_bp
+        assert auth_bp is not None
+
+    def test_blueprint_name(self):
+        """Test blueprint name"""
+        from routes.auth import auth_bp
+        assert auth_bp.name == 'auth'
+
+    def test_blueprint_url_prefix(self):
+        """Test blueprint URL prefix"""
+        from routes.auth import auth_bp
+        assert auth_bp.url_prefix == '/api/auth'
+
+
+class TestAuthRouteImports:
+    """Tests for auth route imports"""
+
+    def test_sanic_blueprint_type(self):
+        """Test auth_bp is Sanic Blueprint"""
+        from routes.auth import auth_bp
+        from sanic import Blueprint
+        assert isinstance(auth_bp, Blueprint)
+
+    def test_module_has_required_functions(self):
+        """Test module has required route functions"""
+        from routes import auth
         
-        # Mock password hashing
-        with patch('routes.auth.bcrypt.hashpw') as mock_hash:
-            mock_hash.return_value = b'hashed_password'
-            
-            # Test would call the actual route handler here
-            # For now, verify data structure
-            assert 'username' in sample_user_data
-            assert 'email' in sample_user_data
-            assert 'password' in sample_user_data
-    
-    @pytest.mark.asyncio
-    async def test_register_duplicate_username(self, mock_request, sample_user_data):
-        """Test registration with duplicate username"""
-        mock_request.json = sample_user_data
-        
-        # Simulate duplicate username error
-        # Would test actual route behavior
-        assert sample_user_data['username'] == 'test_user'
-    
-    @pytest.mark.asyncio
-    async def test_login_success(self, mock_request):
-        """Test successful login"""
-        mock_request.json = {
-            'username': 'test_user',
-            'password': 'SecurePassword123!'
-        }
-        
-        # Would test JWT generation here
-        assert 'username' in mock_request.json
-        assert 'password' in mock_request.json
-    
-    @pytest.mark.asyncio
-    async def test_login_invalid_credentials(self, mock_request):
-        """Test login with invalid credentials"""
-        mock_request.json = {
-            'username': 'nonexistent',
-            'password': 'wrong'
-        }
-        
-        # Would verify 401 response
-        assert mock_request.json['username'] == 'nonexistent'
-    
-    def test_protected_route_no_token(self, mock_request):
-        """Test protected route without token"""
-        mock_request.headers = {}
-        
-        # Should return 401
-        assert 'Authorization' not in mock_request.headers
-    
-    def test_protected_route_invalid_token(self, mock_request):
-        """Test protected route with invalid token"""
-        mock_request.headers = {'Authorization': 'Bearer invalid_token'}
-        
-        # Should return 401
-        assert 'Authorization' in mock_request.headers
+        # Check key functions exist
+        assert hasattr(auth, 'register')
+        assert hasattr(auth, 'login')
+
+
+class TestAuthRouteFunctions:
+    """Tests for auth route functions"""
+
+    def test_has_register_function(self):
+        """Test module has register function"""
+        from routes.auth import register
+        assert register is not None
+
+    def test_has_login_function(self):
+        """Test module has login function"""
+        from routes.auth import login
+        assert login is not None
+
+    def test_has_get_profile_function(self):
+        """Test module has get_profile function"""
+        from routes.auth import get_profile
+        assert get_profile is not None
+
+    def test_has_verify_token_function(self):
+        """Test module has verify_token function"""
+        from routes.auth import verify_token
+        assert verify_token is not None
+
+    def test_has_validate_email_function(self):
+        """Test module has validate_email function"""
+        from routes.auth import validate_email
+        assert validate_email is not None
+
+    def test_has_validate_password_function(self):
+        """Test module has validate_password function"""
+        from routes.auth import validate_password
+        assert validate_password is not None
+
+
+class TestAuthRouteLogger:
+    """Tests for auth route logger"""
+
+    def test_module_has_logger(self):
+        """Test module has logger"""
+        from routes.auth import logger
+        import logging
+        assert isinstance(logger, logging.Logger)

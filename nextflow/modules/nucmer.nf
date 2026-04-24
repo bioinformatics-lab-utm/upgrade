@@ -3,7 +3,7 @@
 
 process NUCMER {
     tag "${sample_id}"
-    container 'staphb/mummer:3.23'
+    container 'staphb/mummer:latest'
     
     publishDir "${params.outdir}/08_comparative/nucmer", mode: 'copy'
     
@@ -18,6 +18,8 @@ process NUCMER {
     
     script:
     """
+    set -euo pipefail
+
     # Run nucmer alignment
     nucmer \\
         --maxgap=${params.nucmer_maxgap} \\
@@ -47,7 +49,7 @@ process NUCMER {
 // Nucmer with filtering and visualization
 process NUCMER_PLOT {
     tag "${sample_id}"
-    container 'staphb/mummer:3.23'
+    container 'staphb/mummer:latest'
     
     publishDir "${params.outdir}/08_comparative/nucmer_plots", mode: 'copy'
     
@@ -63,6 +65,8 @@ process NUCMER_PLOT {
     
     script:
     """
+    set -euo pipefail
+
     # Run nucmer
     nucmer \\
         --maxgap=${params.nucmer_maxgap} \\
@@ -72,7 +76,7 @@ process NUCMER_PLOT {
         --prefix=${sample_id} \\
         ${reference} \\
         ${query}
-    
+
     # Filter delta file (1-to-1 alignments, min 90% identity)
     delta-filter -1 -i ${params.nucmer_min_identity} ${sample_id}.delta > ${sample_id}.filtered.delta
     
@@ -96,7 +100,7 @@ process NUCMER_PLOT {
 // Detect potential Horizontal Gene Transfer events
 process NUCMER_HGT {
     tag "${sample_id}"
-    container 'staphb/mummer:3.23'
+    container 'staphb/mummer:latest'
     
     publishDir "${params.outdir}/08_comparative/nucmer_hgt", mode: 'copy'
     
@@ -109,6 +113,8 @@ process NUCMER_HGT {
     
     script:
     """
+    set -euo pipefail
+
     # Run nucmer
     nucmer --prefix=${sample_id} ${reference} ${query}
     

@@ -1,46 +1,49 @@
 /* ===================================================================
    UPGRADE - Professional Biotech Design System
-   Version: 2.0
-   Last Updated: December 21, 2025
+   Version: 3.0
+   Last Updated: January 3, 2026
    =================================================================== */
+
+/* Import Professional Fonts */
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;600;700&display=swap');
 
 /* ===================================================================
    CSS VARIABLES - Design Tokens
    =================================================================== */
 :root {
-  /* Color Palette - Biotech/Scientific Theme */
-  --color-primary: #0052ff;
-  --color-primary-dark: #0041cc;
-  --color-primary-light: #4d8fff;
-  --color-secondary: #00d4ff;
-  --color-accent: #00ff88;
-  --color-warning: #ffb800;
-  --color-danger: #ff3b3b;
-  --color-success: #00e676;
+  /* Color Palette - Modern Scientific Theme */
+  --color-primary: #1e40af;
+  --color-primary-dark: #1e3a8a;
+  --color-primary-light: #3b82f6;
+  --color-secondary: #3b82f6;
+  --color-accent: #10b981;
+  --color-warning: #f59e0b;
+  --color-danger: #ef4444;
+  --color-success: #10b981;
   
-  /* Gradients - DNA/Science inspired */
-  --gradient-primary: linear-gradient(135deg, #0052ff 0%, #00d4ff 100%);
-  --gradient-accent: linear-gradient(135deg, #00d4ff 0%, #00ff88 100%);
-  --gradient-purple: linear-gradient(135deg, #6c5ce7 0%, #a29bfe 100%);
-  --gradient-warm: linear-gradient(135deg, #ff6b6b 0%, #feca57 100%);
-  --gradient-cool: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%);
-  --gradient-science: linear-gradient(135deg, #0052ff 0%, #00d4ff 50%, #00ff88 100%);
+  /* Gradients - Modern Professional */
+  --gradient-primary: linear-gradient(135deg, #1e40af 0%, #3b82f6 100%);
+  --gradient-accent: linear-gradient(135deg, #3b82f6 0%, #10b981 100%);
+  --gradient-purple: linear-gradient(135deg, #8b5cf6 0%, #a78bfa 100%);
+  --gradient-warm: linear-gradient(135deg, #ef4444 0%, #f59e0b 100%);
+  --gradient-cool: linear-gradient(135deg, #3b82f6 0%, #06b6d4 100%);
+  --gradient-science: linear-gradient(135deg, #1e40af 0%, #3b82f6 50%, #10b981 100%);
   
   /* Background Colors */
   --bg-primary: #ffffff;
-  --bg-secondary: #f8f9fa;
-  --bg-tertiary: #e9ecef;
+  --bg-secondary: #f8fafc;
+  --bg-tertiary: #f1f5f9;
   --bg-elevated: #ffffff;
-  --bg-hover: rgba(0, 82, 255, 0.05);
-  --bg-active: rgba(0, 82, 255, 0.1);
-  
+  --bg-hover: rgba(30, 64, 175, 0.05);
+  --bg-active: rgba(30, 64, 175, 0.1);
+
   /* Surface Colors */
   --surface-0: #ffffff;
-  --surface-1: #f8f9fa;
-  --surface-2: #e9ecef;
-  --surface-3: #dee2e6;
-  
-  /* Text Colors */
+  --surface-1: #f8fafc;
+  --surface-2: #f1f5f9;
+  --surface-3: #e2e8f0;
+
+  /* Text Colors - Improved Readability */
   --text-primary: #1e293b;
   --text-secondary: #475569;
   --text-tertiary: #64748b;
@@ -48,17 +51,17 @@
   --text-disabled: #cbd5e1;
   
   /* Border Colors */
-  --border-primary: rgba(148, 163, 184, 0.3);
-  --border-secondary: rgba(148, 163, 184, 0.2);
-  --border-accent: rgba(0, 82, 255, 0.4);
-  
+  --border-primary: #e2e8f0;
+  --border-secondary: #f1f5f9;
+  --border-accent: #3b82f6;
+
   /* Shadows */
   --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.05);
-  --shadow-md: 0 4px 6px rgba(0, 0, 0, 0.07);
-  --shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.1);
-  --shadow-xl: 0 20px 25px -5px rgba(0, 0, 0, 0.12);
-  --shadow-glow: 0 0 20px rgba(0, 82, 255, 0.3);
-  --shadow-glow-accent: 0 0 20px rgba(0, 212, 255, 0.3);
+  --shadow-md: 0 4px 20px rgba(0, 0, 0, 0.08);
+  --shadow-lg: 0 8px 32px rgba(0, 0, 0, 0.12);
+  --shadow-xl: 0 20px 40px rgba(0, 0, 0, 0.15);
+  --shadow-glow: 0 8px 24px rgba(30, 64, 175, 0.3);
+  --shadow-glow-accent: 0 8px 24px rgba(59, 130, 246, 0.3);
   
   /* Layout Dimensions */
   --nav-height: 80px;
@@ -76,22 +79,22 @@
   --space-3xl: 64px;
   
   /* Border Radius */
-  --radius-sm: 6px;
-  --radius-md: 10px;
-  --radius-lg: 14px;
+  --radius-sm: 8px;
+  --radius-md: 12px;
+  --radius-lg: 16px;
   --radius-xl: 20px;
   --radius-full: 9999px;
-  
+
   /* Transitions */
   --transition-fast: 150ms cubic-bezier(0.4, 0, 0.2, 1);
-  --transition-base: 250ms cubic-bezier(0.4, 0, 0.2, 1);
-  --transition-slow: 350ms cubic-bezier(0.4, 0, 0.2, 1);
+  --transition-base: 300ms cubic-bezier(0.4, 0, 0.2, 1);
+  --transition-slow: 400ms cubic-bezier(0.4, 0, 0.2, 1);
   --transition-bounce: 500ms cubic-bezier(0.68, -0.55, 0.265, 1.55);
-  
-  /* Typography */
+
+  /* Typography - Professional Fonts */
   --font-display: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
   --font-body: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-  --font-mono: 'JetBrains Mono', 'Fira Code', 'Consolas', monospace;
+  --font-mono: 'JetBrains Mono', 'Courier New', 'Consolas', monospace;
   
   --font-size-xs: 0.75rem;
   --font-size-sm: 0.875rem;
@@ -135,11 +138,27 @@ html {
 }
 
 body {
-  font-family: var(--font-body);
+  font-family: var(--font-body) !important;
   background: var(--bg-primary);
   color: var(--text-primary);
   line-height: 1.6;
   overflow-x: hidden;
+}
+
+/* Force Inter font everywhere */
+body, html, input, button, select, textarea {
+  font-family: var(--font-body) !important;
+}
+
+h1, h2, h3, h4, h5, h6 {
+  font-family: var(--font-display) !important;
+  color: var(--text-primary);
+  font-weight: 800;
+  letter-spacing: -0.02em;
+}
+
+button, a {
+  font-family: var(--font-body) !important;
 }
 
 /* Custom Scrollbar */
@@ -259,25 +278,27 @@ body {
 .brand-text h1 {
   font-size: var(--font-size-2xl);
   font-weight: 800;
-  letter-spacing: -0.02em;
-  background: var(--gradient-science);
+  letter-spacing: -0.03em;
+  background: var(--gradient-primary);
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
   background-clip: text;
   margin: 0;
   line-height: 1;
+  font-family: var(--font-display) !important;
 }
 
 .brand-subtitle {
   font-size: var(--font-size-xs);
-  color: var(--text-tertiary);
-  font-weight: 500;
-  letter-spacing: 0.05em;
+  color: var(--text-secondary);
+  font-weight: 700;
+  letter-spacing: 0.8px;
   text-transform: uppercase;
   display: flex;
   align-items: center;
   gap: var(--space-xs);
   margin-top: var(--space-xs);
+  font-family: var(--font-body) !important;
 }
 
 .subtitle-icon {
@@ -346,16 +367,19 @@ body {
 }
 
 .status-value {
-  font-weight: 700;
+  font-weight: 800;
   color: var(--text-primary);
   font-size: var(--font-size-lg);
+  font-family: var(--font-body) !important;
 }
 
 .status-label {
-  color: var(--text-tertiary);
+  color: var(--text-secondary);
   font-size: var(--font-size-xs);
   text-transform: uppercase;
-  letter-spacing: 0.05em;
+  letter-spacing: 0.8px;
+  font-weight: 700;
+  font-family: var(--font-body) !important;
 }
 
 .status-divider {
@@ -451,17 +475,19 @@ body {
 
 .nav-link-title {
   font-size: var(--font-size-sm);
-  font-weight: 600;
+  font-weight: 700;
   letter-spacing: -0.01em;
+  font-family: var(--font-body) !important;
 }
 
 .nav-link-desc {
   font-size: var(--font-size-xs);
   color: var(--text-muted);
+  font-family: var(--font-body) !important;
 }
 
 .nav-link.active .nav-link-desc {
-  color: var(--text-tertiary);
+  color: rgba(255, 255, 255, 0.8);
 }
 
 /* User Actions */

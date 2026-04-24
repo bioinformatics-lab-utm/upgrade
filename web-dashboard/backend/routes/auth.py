@@ -15,13 +15,10 @@ from auth import (
     protected,
     get_user_by_id,
     update_last_login,
-    generate_verification_token,
-    verify_email_token,
-    is_email_verified
 )
 
-# Email functionality disabled - SMTP removed
-# from email_service import send_verification_email, send_welcome_email
+# Rate limiting to prevent brute-force attacks
+from rate_limiter import rate_limit
 
 auth_bp = Blueprint('auth', url_prefix='/api/auth')
 logger = logging.getLogger(__name__)
@@ -67,6 +64,7 @@ def validate_password(password: str) -> tuple[bool, str]:
 
 
 @auth_bp.route('/register', methods=['POST'])
+@rate_limit("5/minute", error_message="Too many registration attempts. Please try again in a minute.")
 async def register(request):
     """
     Register new user
@@ -119,19 +117,12 @@ async def register(request):
         # Create user
         async with request.app.ctx.db_pool.acquire() as conn:
             user_id = await create_user(conn, username, email, password, full_name)
-            
+
             if not user_id:
                 raise BadRequest("Username or email already exists")
-            
-            # EMAIL VERIFICATION DISABLED - skip token generation
-            # verification_token = await generate_verification_token(conn, user_id)
-            
-            # Update last login
+
             await update_last_login(conn, user_id)
-        
-        # EMAIL VERIFICATION DISABLED - no email sending
-        # email_sent = False
-        
+
         # Generate JWT token
         token = generate_token(user_id, username, email)
         
@@ -145,7 +136,6 @@ async def register(request):
                 'username': username,
                 'email': email,
                 'full_name': full_name,
-                'email_verified': False
             },
             'token': token
         }, status=201)
@@ -160,6 +150,7 @@ async def register(request):
 
 
 @auth_bp.route('/login', methods=['POST'])
+@rate_limit("5/minute", error_message="Too many login attempts. Please try again in a minute.")
 async def login(request):
     """
     User login
@@ -291,7 +282,4 @@ async def verify_token(request):
     })
 
 
-# DEPRECATED: Email verification endpoints removed (Dec 21, 2025)
-# Email verification is disabled - these endpoints are no longer needed
-# If re-enabling email verification in the future, restore from git history
 

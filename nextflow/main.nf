@@ -116,14 +116,13 @@ include { FILTLONG } from './modules/filtlong.nf'
 include { FLYE } from './modules/flye.nf'
 include { FILTER_CONTIGS } from './modules/filter_contigs.nf'
 include { GUNZIP } from './modules/gunzip.nf'
-include { BWA_MAPPING } from './modules/bwa_mapping.nf'
+include { MINIMAP2_MAPPING } from './modules/minimap2_mapping.nf'
 include { ASSEMBLY_STATS } from './modules/assembly_stats.nf'
 include { MEDAKA; MEDAKA_STATS } from './modules/medaka.nf'
 include { VIRSORTER2; VIRSORTER2_SUMMARY } from './modules/virsorter2.nf'
 include { PLASMIDFINDER; MOBSUITE; PLASMID_SUMMARY } from './modules/plasmidfinder.nf'
 include { PROKKA } from './modules/prokka.nf'
 include { ABRICATE } from './modules/abricate.nf'
-include { DEEPARG } from './modules/deeparg.nf'
 include { METABAT2 } from './modules/metabat2.nf'
 include { CONCOCT } from './modules/concoct.nf'
 include { CHECKM } from './modules/checkm.nf'
@@ -160,9 +159,9 @@ workflow {
             println "Found ONT sample: ${sample_id} with file: ${file}"
             return [sample_id, file]
         }
-    // Check if we have any input files
+    // Log warning if no input files found (don't error - pipeline should complete successfully)
     ont_reads_ch.ifEmpty {
-        error "No FASTQ files found in ${params.input_dir}. Please check the input directory."
+        log.warn "No FASTQ files found in ${params.input_dir} - pipeline will complete without processing"
     }
     
     // Stage 1: Quality Control with NanoPlot
@@ -215,21 +214,21 @@ workflow {
         }
     }
     
-    // Stage 3.6: Decompress filtered assembly for PROKKA and DEEPARG
+    // Stage 3.6: Decompress filtered assembly for minimap2, PROKKA, ABRICATE, MetaBAT2, CONCOCT
     GUNZIP(FILTER_CONTIGS.out.filtered_assembly)
-    
-    // Stage 3.7: Map reads to filtered assembly with BWA
-    bwa_input = FILTER_CONTIGS.out.filtered_assembly.join(FILTLONG.out.reads, by: 0)
-    BWA_MAPPING(bwa_input)
-    
+
+    // Stage 3.7: Map reads to filtered assembly with minimap2 (map-ont preset for ONT long reads)
+    minimap2_input = GUNZIP.out.fasta.join(FILTLONG.out.reads, by: 0)
+    MINIMAP2_MAPPING(minimap2_input)
+
     // Stage 3.8: Assembly statistics on filtered assembly
     ASSEMBLY_STATS(FILTER_CONTIGS.out.filtered_assembly)
-    
-    // Stage 4: Genome Binning with MetaBAT2 (using filtered contigs)
-    METABAT2(FILTER_CONTIGS.out.filtered_assembly, BWA_MAPPING.out.bam)
-    
-    // Stage 5: Genome Binning with CONCOCT (using filtered contigs)
-    CONCOCT(FILTER_CONTIGS.out.filtered_assembly, BWA_MAPPING.out.bam)
+
+    // Stage 4: Genome Binning with MetaBAT2 (using filtered contigs - unzipped for better compatibility)
+    METABAT2(GUNZIP.out.fasta, MINIMAP2_MAPPING.out.bam)
+
+    // Stage 5: Genome Binning with CONCOCT (using filtered contigs - unzipped)
+    CONCOCT(GUNZIP.out.fasta, MINIMAP2_MAPPING.out.bam)
     
     // Stage 6: Quality Assessment with CheckM
     // Run CheckM on MetaBAT2 bins
@@ -311,10 +310,7 @@ workflow {
     
     // Stage 7.2: AMR detection with ABRICATE on each bin
     ABRICATE(all_bins_for_annotation.map { sample_id, bin_name, bin -> tuple(bin_name, bin) }, 'card')
-    
-    // Stage 7.3: DeepARG AMR prediction on each bin
-    DEEPARG(all_bins_for_annotation.map { sample_id, bin_name, bin -> tuple(bin_name, bin) })
-    
+
     // Stage 8: Taxonomic Classification with Kraken2 (optional - only if database provided)
     if (params.kraken2_db) {
         // Run Kraken2 on dereplicated bins
@@ -328,7 +324,8 @@ workflow {
             // Transform Kraken2 outputs for Bracken input format
             metabat2_bracken_input = KRAKEN2_METABAT2.out.kraken_reports
                 .flatMap { method, reports ->
-                    reports.collect { report ->
+                    def reps = (reports instanceof java.util.List) ? reports : [reports]
+                    reps.collect { report ->
                         def bin_id = report.getBaseName().replaceAll(/_kraken2_report\.txt$/, '')
                         [method, bin_id, report]
                     }
@@ -336,7 +333,8 @@ workflow {
             
             concoct_bracken_input = KRAKEN2_CONCOCT.out.kraken_reports
                 .flatMap { method, reports ->
-                    reports.collect { report ->
+                    def reps = (reports instanceof java.util.List) ? reports : [reports]
+                    reps.collect { report ->
                         def bin_id = report.getBaseName().replaceAll(/_kraken2_report\.txt$/, '')
                         [method, bin_id, report]
                     }
@@ -352,10 +350,8 @@ workflow {
             BRACKEN_COMBINED_REPORT(
                 BRACKEN_METABAT2.out.bracken_output
                     .mix(BRACKEN_CONCOCT.out.bracken_output)
+                    .map { method, bin_id, path -> tuple(method, path) }
                     .groupTuple(by: 0)
-                    .map { method, outputs -> 
-                        [method, outputs] 
-                    }
             )
         }
     }
@@ -363,16 +359,16 @@ workflow {
     // ============================================
     // STAGE 8: PIPELINE SUMMARY GENERATION
     // ============================================
-    // Generate comprehensive JSON summary for frontend dashboard
-    // Aggregates all QC, assembly, taxonomy, and AMR results
-    
-    // Create results directory channel for each sample
-    results_ch = ont_reads_ch.map { sample_id, reads -> 
-        [sample_id, file(params.outdir)]
-    }
-    
-    // Generate summary JSON for each sample
-    PIPELINE_SUMMARY(results_ch)
+    // TEMPORARY DISABLED - causes pipeline timeout
+    // TODO: Fix channel dependency issue
+    // PIPELINE_SUMMARY must run AFTER all analyses complete
+    // .collect() and .last() block when channel is empty
+    // Need a barrier mechanism that avoids deadlock
+
+    // ont_reads_ch
+    //     .map { sample_id, reads -> tuple(sample_id, file("${params.outdir}")) }
+    //     .set { results_ch }
+    // PIPELINE_SUMMARY(results_ch)
 }
 
 // Print completion message
@@ -381,8 +377,38 @@ workflow.onComplete {
         def exitStatus = workflow?.exitStatus ?: 0
         def failed = workflow?.stats?.failedCount ?: 0
         def outdir = params?.outdir ?: 'results'
-        
-        // Считаем успешным если нет failed процессов
+
+        // Generate pipeline summary JSON after workflow completes
+        if (failed == 0 && params.input_dir) {
+            try {
+                // Extract sample ID: parent of input/ (e.g. /work/SRR123/input → SRR123)
+                def inputDir = new File(params.input_dir)
+                def sampleId = (inputDir.getName() == 'input') ? inputDir.getParentFile()?.getName() : inputDir.getName()
+                def summaryOutput = "${outdir}/00_summary/${sampleId}_summary.json"
+
+                log.info "Generating pipeline summary for ${sampleId}..."
+
+                def summaryCmd = [
+                    'python3',
+                    "${projectDir}/bin/generate_summary.py",
+                    '--sample-id', sampleId,
+                    '--results-dir', outdir,
+                    '--output', summaryOutput
+                ].execute()
+
+                summaryCmd.waitForProcessOutput(System.out, System.err)
+
+                if (summaryCmd.exitValue() == 0) {
+                    log.info "✅ Pipeline summary generated: ${summaryOutput}"
+                } else {
+                    log.warn "⚠️ Failed to generate pipeline summary (exit code: ${summaryCmd.exitValue()})"
+                }
+            } catch (Exception e) {
+                log.warn "⚠️ Error generating pipeline summary: ${e.message}"
+            }
+        }
+
+        // Success = no failed processes
         if (failed == 0) {
             log.info """
             Pipeline completed successfully!

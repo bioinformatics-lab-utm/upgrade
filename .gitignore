@@ -23,12 +23,16 @@ nextflow.config.local
 singularity/
 
 # ============================================
-# SECRETS
+# SECRETS - CRITICAL: Keep all sensitive files out of git
 # ============================================
+.env
 .env.secrets
 .env.local
+.env.production
 *.secrets
 secrets/*.txt
+secrets/*.key
+secrets/*.pem
 
 # ============================================
 # PYTHON
@@ -74,6 +78,7 @@ environments/
 # Python testing
 .pytest_cache/
 .coverage
+coverage.xml
 htmlcov/
 .tox/
 
@@ -417,6 +422,11 @@ sectiunea_temp/
 
 # Old pipeline files
 *.old
+
+# Runtime reports and backup data
+reports/
+backups/minio/*.json
+backups/cleanup_*/
 
 # Server-only configuration (private repo)
 .env.example

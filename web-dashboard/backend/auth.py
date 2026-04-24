@@ -5,6 +5,7 @@ JWT-based authentication with user registration and login
 import jwt
 import bcrypt
 import os
+import sys
 import secrets
 from datetime import datetime, timedelta
 from functools import wraps
@@ -14,8 +15,54 @@ import logging
 
 logger = logging.getLogger(__name__)
 
+# JWT bypass: BLOCKED in production, only allowed in development
+_env = os.getenv('ENVIRONMENT', 'development').lower()
+_bypass_requested = os.getenv('JWT_BYPASS_ENABLED', 'false').lower() == 'true'
+if _bypass_requested and _env in ('production', 'prod'):
+    logger.critical("SECURITY: JWT_BYPASS_ENABLED is set in production! Ignoring — auth remains enforced.")
+    JWT_BYPASS_ENABLED = False
+else:
+    JWT_BYPASS_ENABLED = _bypass_requested
+if JWT_BYPASS_ENABLED:
+    logger.warning("JWT_BYPASS_ENABLED=true — authentication is DISABLED (development only).")
+
+
+def _load_jwt_secret():
+    """
+    Load JWT secret from Docker secrets file or environment variable.
+    SECURITY: Fails fast in production if not configured.
+    """
+    # Try Docker secrets first
+    secret_file = '/run/secrets/jwt_secret'
+    if os.path.exists(secret_file):
+        with open(secret_file, 'r') as f:
+            secret = f.read().strip()
+            if secret:
+                logger.info("JWT_SECRET loaded from Docker secrets")
+                return secret
+    
+    # Fall back to environment variable
+    secret = os.getenv('JWT_SECRET')
+    if secret:
+        logger.info("JWT_SECRET loaded from environment variable")
+        return secret
+    
+    # In production, we must have a secret
+    env = os.getenv('ENVIRONMENT', 'development').lower()
+    if env in ('production', 'prod'):
+        logger.critical("SECURITY ERROR: JWT_SECRET not configured in production!")
+        sys.exit(1)
+    
+    # Development only: generate a random secret with warning
+    logger.warning(
+        "JWT_SECRET not set - using auto-generated secret. "
+        "This is only acceptable in development. Set JWT_SECRET for production!"
+    )
+    return secrets.token_hex(32)
+
+
 # JWT Configuration
-JWT_SECRET = os.getenv('JWT_SECRET', 'your-secret-key-change-this-in-production')
+JWT_SECRET = _load_jwt_secret()
 JWT_ALGORITHM = 'HS256'
 JWT_EXPIRATION_HOURS = 24  # Token expires in 24 hours
 
@@ -44,6 +91,16 @@ def generate_token(user_id: int, username: str, email: str) -> str:
 
 def decode_token(token: str) -> dict:
     """Decode and verify JWT token"""
+    if JWT_BYPASS_ENABLED:
+        logger.warning("JWT BYPASS ACTIVE - Token verification skipped!")
+        return {
+            'user_id': 1,
+            'username': 'dev_user',
+            'email': 'dev@localhost',
+            'exp': (datetime.utcnow() + timedelta(hours=24)).timestamp(),
+            'iat': datetime.utcnow().timestamp()
+        }
+
     try:
         payload = jwt.decode(token, JWT_SECRET, algorithms=[JWT_ALGORITHM])
         return payload
@@ -55,23 +112,31 @@ def decode_token(token: str) -> dict:
 
 def extract_token(request):
     """Extract token from Authorization header"""
+    if JWT_BYPASS_ENABLED:
+        auth_header = request.headers.get('Authorization', '')
+        if auth_header:
+            parts = auth_header.split()
+            if len(parts) == 2:
+                return parts[1]
+        return "bypass_token"
+
     auth_header = request.headers.get('Authorization', '')
-    
+
     if not auth_header:
         raise Unauthorized("No authorization header provided")
-    
+
     parts = auth_header.split()
-    
+
     if len(parts) != 2 or parts[0].lower() != 'bearer':
         raise Unauthorized("Invalid authorization header format. Use: Bearer <token>")
-    
+
     return parts[1]
 
 
 def protected(wrapped):
     """
-    Decorator to protect routes with JWT authentication
-    
+    Decorator to protect routes with JWT authentication.
+
     Usage:
         @app.route('/api/protected')
         @protected
@@ -81,25 +146,32 @@ def protected(wrapped):
     """
     @wraps(wrapped)
     async def decorator(request, *args, **kwargs):
+        if JWT_BYPASS_ENABLED:
+            request.ctx.user = {
+                'user_id': 1,
+                'username': 'dev_user',
+                'email': 'dev@localhost'
+            }
+            return await wrapped(request, *args, **kwargs)
+
         try:
             token = extract_token(request)
             payload = decode_token(token)
-            
-            # Attach user info to request context
+
             request.ctx.user = {
                 'user_id': payload['user_id'],
                 'username': payload['username'],
                 'email': payload['email']
             }
-            
+
             logger.info(f"Authenticated user: {payload['username']} (ID: {payload['user_id']})")
-            
+
         except Exception as e:
             logger.warning(f"Authentication failed: {e}")
             raise Unauthorized(str(e))
-        
+
         return await wrapped(request, *args, **kwargs)
-    
+
     return decorator
 
 
@@ -125,10 +197,15 @@ async def create_user(conn, username: str, email: str, password: str, full_name:
     # Hash password
     password_hash = hash_password(password)
     
+    # Split full_name into first_name and last_name
+    name_parts = (full_name or '').split(maxsplit=1)
+    first_name = name_parts[0] if name_parts else None
+    last_name = name_parts[1] if len(name_parts) > 1 else None
+    
     # Insert user
     query = """
-        INSERT INTO users (username, email, password_hash, full_name, user_type, created_at)
-        VALUES ($1, $2, $3, $4, $5, $6)
+        INSERT INTO users (username, email, password_hash, first_name, last_name, user_type, created_at)
+        VALUES ($1, $2, $3, $4, $5, $6, $7)
         RETURNING user_id
     """
     
@@ -137,7 +214,8 @@ async def create_user(conn, username: str, email: str, password: str, full_name:
         username,
         email,
         password_hash,
-        full_name,
+        first_name,
+        last_name,
         user_type,
         datetime.utcnow()
     )
@@ -154,7 +232,7 @@ async def authenticate_user(conn, username: str, password: str):
         User dict if successful, None if authentication fails
     """
     query = """
-        SELECT user_id, username, email, password_hash, full_name, is_active
+        SELECT user_id, username, email, password_hash, first_name, last_name, is_active
         FROM users
         WHERE username = $1 AND is_active = true
     """
@@ -172,32 +250,37 @@ async def authenticate_user(conn, username: str, password: str):
     
     logger.info(f"User authenticated: {username} (ID: {user['user_id']})")
     
+    # Combine first_name and last_name into full_name
+    full_name = f"{user['first_name'] or ''} {user['last_name'] or ''}".strip() or None
+    
     return {
         'user_id': user['user_id'],
         'username': user['username'],
         'email': user['email'],
-        'full_name': user['full_name']
+        'full_name': full_name
     }
 
 
 async def get_user_by_id(conn, user_id: int):
     """Get user information by ID"""
     query = """
-        SELECT user_id, username, email, full_name, created_at, last_login
+        SELECT user_id, username, email, first_name, last_name, created_at, last_login
         FROM users
         WHERE user_id = $1 AND is_active = true
     """
-    
+
     user = await conn.fetchrow(query, user_id)
-    
+
     if not user:
         return None
-    
+
+    full_name = f"{user['first_name'] or ''} {user['last_name'] or ''}".strip() or None
+
     return {
         'user_id': user['user_id'],
         'username': user['username'],
         'email': user['email'],
-        'full_name': user['full_name'],
+        'full_name': full_name,
         'created_at': user['created_at'].isoformat() if user['created_at'] else None,
         'last_login': user['last_login'].isoformat() if user['last_login'] else None
     }
@@ -212,73 +295,3 @@ async def update_last_login(conn, user_id: int):
     )
 
 
-async def generate_verification_token(conn, user_id: int) -> str:
-    """
-    Generate email verification token for user
-    
-    Returns:
-        64-character verification token
-    """
-    # Generate random 64-char token
-    token = secrets.token_urlsafe(48)  # 48 bytes = 64 chars base64
-    expires_at = datetime.utcnow() + timedelta(hours=24)
-    
-    # Store in database
-    await conn.execute("""
-        INSERT INTO email_verification_tokens (user_id, token, expires_at)
-        VALUES ($1, $2, $3)
-    """, user_id, token, expires_at)
-    
-    logger.info(f"Generated verification token for user_id: {user_id}")
-    return token
-
-
-async def verify_email_token(conn, token: str) -> dict:
-    """
-    Verify email token and mark user as verified
-    
-    Returns:
-        dict with success status and message/user_id
-    """
-    # Get token from database
-    row = await conn.fetchrow("""
-        SELECT user_id, expires_at, used_at
-        FROM email_verification_tokens
-        WHERE token = $1
-    """, token)
-    
-    if not row:
-        return {'success': False, 'error': 'Invalid verification token'}
-    
-    if row['used_at']:
-        return {'success': False, 'error': 'Token already used'}
-    
-    if row['expires_at'] < datetime.utcnow():
-        return {'success': False, 'error': 'Token expired. Please request a new one.'}
-    
-    # Mark token as used
-    await conn.execute("""
-        UPDATE email_verification_tokens
-        SET used_at = $1
-        WHERE token = $2
-    """, datetime.utcnow(), token)
-    
-    # Mark user as verified
-    await conn.execute("""
-        UPDATE users
-        SET email_verified = true, email_verified_at = $1
-        WHERE user_id = $2
-    """, datetime.utcnow(), row['user_id'])
-    
-    logger.info(f"Email verified for user_id: {row['user_id']}")
-    
-    return {'success': True, 'user_id': row['user_id']}
-
-
-async def is_email_verified(conn, user_id: int) -> bool:
-    """Check if user's email is verified"""
-    verified = await conn.fetchval(
-        "SELECT email_verified FROM users WHERE user_id = $1",
-        user_id
-    )
-    return verified or False

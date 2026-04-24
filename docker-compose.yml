@@ -2,26 +2,6 @@ name: upgrade
 
 services:
   # ===========================================
-  # WEATHER API SERVICE
-  # ===========================================
-  open-meteo:
-    image: public.ecr.aws/w5w8t1y7/openmeteo:latest
-    container_name: ${COMPOSE_PROJECT_NAME}_open_meteo
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:${OPEN_METEO_PORT}/v1/forecast?latitude=47&longitude=28&current_weather=true"]
-      interval: ${HEALTH_CHECK_INTERVAL}
-      timeout: ${HEALTH_CHECK_TIMEOUT}
-      retries: ${HEALTH_CHECK_RETRIES}
-    ports:
-      - "0.0.0.0:${OPEN_METEO_PORT}:8080"
-    volumes:
-      - ./open-meteo/config:/app/config
-      - open_meteo_data:/app/data
-    networks:
-      - upgrade_network
-    restart: unless-stopped
-
-  # ===========================================
   # DATABASE SERVICES
   # ===========================================
   postgres:
@@ -30,12 +10,12 @@ services:
     environment:
       - POSTGRES_DB=${POSTGRES_DB}
       - POSTGRES_USER=${POSTGRES_USER}
-      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD} 
     volumes:
       - postgres_data:/var/lib/postgresql/data
       - ./database/migrations:/docker-entrypoint-initdb.d/
     ports:
-      - "127.0.0.1:${POSTGRES_EXTERNAL_PORT}:5432"
+      - "127.0.0.1:5433:5432"  # Expose on localhost:5433 only (not externally)
     networks:
       - upgrade_network
     restart: unless-stopped
@@ -91,7 +71,7 @@ services:
   # OBJECT STORAGE
   # ===========================================
   minio:
-    image: minio/minio:latest
+    image: minio/minio:RELEASE.2025-09-07T16-13-09Z
     container_name: ${COMPOSE_PROJECT_NAME}_minio
     networks: [upgrade_network]
     ports:
@@ -161,7 +141,7 @@ services:
     restart: unless-stopped
 
   kafka-ui:
-    image: provectuslabs/kafka-ui:latest
+    image: provectuslabs/kafka-ui:v0.7.2
     container_name: ${COMPOSE_PROJECT_NAME}_kafka_ui
     ports:
       - "127.0.0.1:${KAFKA_UI_PORT}:8080"
@@ -173,83 +153,6 @@ services:
     depends_on:
       kafka:
         condition: service_healthy
-    restart: unless-stopped
-
-  # ===========================================
-  # DATA PROCESSING SERVICES
-  # ===========================================
-  weather-producer:
-    build:
-      context: ./kafka/producer
-      dockerfile: Dockerfile
-    container_name: ${COMPOSE_PROJECT_NAME}_weather_producer
-    healthcheck:
-      test: ["CMD-SHELL", "pgrep -f weather_producer || exit 1"]
-      interval: 60s
-      timeout: 10s
-      retries: 3
-      start_period: 60s
-    depends_on:
-      kafka:
-        condition: service_healthy
-      open-meteo:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
-    environment:
-      KAFKA_BOOTSTRAP_SERVERS: ${KAFKA_BOOTSTRAP_SERVERS}
-      OPEN_METEO_URL: ${OPEN_METEO_URL}
-      REDIS_HOST: ${REDIS_HOST}
-      REDIS_PORT: ${REDIS_PORT}
-      REDIS_PASSWORD: ${REDIS_PASSWORD}
-      POSTGRES_HOST: postgres
-      POSTGRES_PORT: ${POSTGRES_PORT}
-      POSTGRES_DB: ${POSTGRES_DB}
-      POSTGRES_USER: ${POSTGRES_USER}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
-      COLLECTION_INTERVAL_MINUTES: ${COLLECTION_INTERVAL_MINUTES}
-      LOG_LEVEL: ${LOG_LEVEL}
-    volumes:
-      - ./logs:/app/logs
-    networks:
-      - upgrade_network
-    restart: unless-stopped
-
-  weather-consumer:
-    build:
-      context: ./kafka/consumer
-      dockerfile: Dockerfile
-    container_name: ${COMPOSE_PROJECT_NAME}_weather_consumer
-    healthcheck:
-      test: ["CMD-SHELL", "pgrep -f weather_consumer || exit 1"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 60s
-    depends_on:
-      kafka:
-        condition: service_healthy
-      postgres:
-        condition: service_healthy
-      minio:
-        condition: service_healthy
-    environment:
-      KAFKA_BOOTSTRAP_SERVERS: ${KAFKA_BOOTSTRAP_SERVERS}
-      POSTGRES_HOST: ${POSTGRES_HOST}
-      POSTGRES_PORT: ${POSTGRES_PORT}
-      POSTGRES_DB: ${POSTGRES_DB}
-      POSTGRES_USER: ${POSTGRES_USER}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
-      POSTGRES_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@${POSTGRES_HOST}:${POSTGRES_PORT}/${POSTGRES_DB}
-      MINIO_ENDPOINT: minio:${MINIO_API_PORT}
-      MINIO_ACCESS_KEY: ${MINIO_ROOT_USER}
-      MINIO_SECRET_KEY: ${MINIO_ROOT_PASSWORD}
-      MINIO_BUCKET: ${MINIO_BUCKET}
-      LOG_LEVEL: ${LOG_LEVEL}
-    volumes:
-      - ./logs:/app/logs
-    networks:
-      - upgrade_network
     restart: unless-stopped
 
   # ===========================================
@@ -278,136 +181,6 @@ services:
         condition: service_healthy
     restart: unless-stopped
 
-  # ===========================================
-  # MONITORING SERVICES
-  # ===========================================
-  prometheus:
-    image: prom/prometheus:v2.48.0
-    container_name: ${COMPOSE_PROJECT_NAME}_prometheus
-    ports:
-      - "127.0.0.1:9090:9090"
-    volumes:
-      - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
-      - ./monitoring/alert_rules.yml:/etc/prometheus/alert_rules.yml:ro
-      - prometheus_data:/prometheus
-    command:
-      - '--config.file=/etc/prometheus/prometheus.yml'
-      - '--storage.tsdb.path=/prometheus'
-      - '--storage.tsdb.retention.time=30d'
-      - '--web.console.libraries=/usr/share/prometheus/console_libraries'
-      - '--web.console.templates=/usr/share/prometheus/consoles'
-      - '--web.enable-lifecycle'
-    networks:
-      - upgrade_network
-    restart: unless-stopped
-    healthcheck:
-      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:9090/-/healthy"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-
-  alertmanager:
-    image: prom/alertmanager:v0.26.0
-    container_name: ${COMPOSE_PROJECT_NAME}_alertmanager
-    ports:
-      - "127.0.0.1:9093:9093"
-    volumes:
-      - ./monitoring/alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro
-      - alertmanager_data:/alertmanager
-    command:
-      - '--config.file=/etc/alertmanager/alertmanager.yml'
-      - '--storage.path=/alertmanager'
-      - '--web.external-url=http://localhost:9093'
-    environment:
-      - SMTP_FROM_EMAIL=${SMTP_FROM_EMAIL}
-      - SMTP_HOST=${SMTP_HOST}
-      - SMTP_PORT=${SMTP_PORT}
-      - SMTP_USER=${SMTP_USER}
-      - SMTP_PASSWORD=${SMTP_PASSWORD}
-      - ALERT_EMAIL_TO=${ALERT_EMAIL_TO:-${SMTP_FROM_EMAIL}}
-    networks:
-      - upgrade_network
-    depends_on:
-      - prometheus
-    restart: unless-stopped
-    healthcheck:
-      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:9093/-/healthy"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-
-  grafana:
-    image: grafana/grafana:10.2.2
-    container_name: ${COMPOSE_PROJECT_NAME}_grafana
-    ports:
-      - "0.0.0.0:3001:3000"
-    volumes:
-      - ./monitoring/grafana/provisioning:/etc/grafana/provisioning:ro
-      - ./monitoring/grafana/dashboards:/var/lib/grafana/dashboards:ro
-      - grafana_data:/var/lib/grafana
-    environment:
-      - GF_SECURITY_ADMIN_USER=${GRAFANA_ADMIN_USER:-admin}
-      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_ADMIN_PASSWORD:-admin}
-      - GF_INSTALL_PLUGINS=grafana-clock-panel,grafana-simple-json-datasource
-      - GF_SERVER_ROOT_URL=http://localhost:3001
-      - GF_AUTH_ANONYMOUS_ENABLED=false
-    networks:
-      - upgrade_network
-    depends_on:
-      - prometheus
-    restart: unless-stopped
-    healthcheck:
-      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:3000/api/health"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-
-  node-exporter:
-    image: prom/node-exporter:v1.7.0
-    container_name: ${COMPOSE_PROJECT_NAME}_node_exporter
-    command:
-      - '--path.procfs=/host/proc'
-      - '--path.sysfs=/host/sys'
-      - '--path.rootfs=/rootfs'
-      - '--collector.filesystem.mount-points-exclude=^/(sys|proc|dev|host|etc)($$|/)'
-    volumes:
-      - /proc:/host/proc:ro
-      - /sys:/host/sys:ro
-      - /:/rootfs:ro
-    ports:
-      - "127.0.0.1:9100:9100"
-    networks:
-      - upgrade_network
-    restart: unless-stopped
-
-  postgres-exporter:
-    image: prometheuscommunity/postgres-exporter:v0.15.0
-    container_name: ${COMPOSE_PROJECT_NAME}_postgres_exporter
-    environment:
-      - DATA_SOURCE_NAME=postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}?sslmode=disable
-    ports:
-      - "127.0.0.1:9187:9187"
-    networks:
-      - upgrade_network
-    depends_on:
-      postgres:
-        condition: service_healthy
-    restart: unless-stopped
-
-  redis-exporter:
-    image: oliver006/redis_exporter:v1.55.0
-    container_name: ${COMPOSE_PROJECT_NAME}_redis_exporter
-    environment:
-      - REDIS_ADDR=redis://redis:6379
-      - REDIS_PASSWORD=${REDIS_PASSWORD}
-    ports:
-      - "127.0.0.1:9121:9121"
-    networks:
-      - upgrade_network
-    depends_on:
-      redis:
-        condition: service_healthy
-    restart: unless-stopped
 
   # ===========================================
   # WEB DASHBOARD (SANIC + REACT)
@@ -418,42 +191,38 @@ services:
       context: ./web-dashboard/backend
       dockerfile: Dockerfile
     container_name: ${COMPOSE_PROJECT_NAME}_web_backend
+    user: "1000:999"
     ports:
-      - "0.0.0.0:8000:8000"
+      - "127.0.0.1:8000:8000"
     environment:
-      - POSTGRES_HOST=postgres
-      - POSTGRES_PORT=${POSTGRES_PORT}
-      - POSTGRES_DB=${POSTGRES_DB}
-      - POSTGRES_USER=${POSTGRES_USER}
-      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
-      - MINIO_ENDPOINT=minio:${MINIO_API_PORT:-9000}
-      - MINIO_EXTERNAL_ENDPOINT=${MINIO_EXTERNAL_ENDPOINT:-localhost:9000}
-      - MINIO_ROOT_USER=${MINIO_ROOT_USER}
-      - MINIO_ROOT_PASSWORD=${MINIO_ROOT_PASSWORD}
-      - REDIS_HOST=redis
-      - REDIS_PORT=${REDIS_PORT}
-      - REDIS_PASSWORD=${REDIS_PASSWORD}
-      - SANIC_PORT=8000
-      - DEBUG=false
-      - AUTO_RELOAD=false
-      # JWT Authentication
-      - JWT_SECRET=${JWT_SECRET}
-      # Email Verification Settings (SMTP)
-      - EMAIL_PROVIDER=smtp
-      - SMTP_HOST=${SMTP_HOST}
-      - SMTP_PORT=${SMTP_PORT}
-      - SMTP_USER=${SMTP_USER}
-      - SMTP_PASSWORD=${SMTP_PASSWORD}
-      - SMTP_FROM_EMAIL=${SMTP_FROM_EMAIL}
-      - SMTP_FROM_NAME=${SMTP_FROM_NAME}
-      - FRONTEND_URL=http://localhost:3000
+    - ENVIRONMENT=development
+    - POSTGRES_HOST=${POSTGRES_HOST}
+    - POSTGRES_PORT=${POSTGRES_PORT}
+    - POSTGRES_DB=${POSTGRES_DB}
+    - POSTGRES_USER=${POSTGRES_USER}
+    - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+    - MINIO_ENDPOINT=minio:${MINIO_API_PORT:-9000}
+    - MINIO_EXTERNAL_ENDPOINT=${MINIO_EXTERNAL_ENDPOINT:-localhost:9000}
+    - MINIO_ROOT_USER=${MINIO_ROOT_USER}
+    - MINIO_ROOT_PASSWORD=${MINIO_ROOT_PASSWORD}
+    - REDIS_HOST=${REDIS_HOST}
+    - REDIS_PORT=${REDIS_PORT}
+    - REDIS_PASSWORD=${REDIS_PASSWORD}
+    - SANIC_PORT=${SANIC_PORT}
+    - DEBUG=${SANIC_DEBUG}
+    - AUTO_RELOAD=${SANIC_AUTO_RELOAD}
+    - FRONTEND_URL=http://localhost:${GEO_DASHBOARD_FRONTEND_PORT}
+    - JWT_SECRET=${JWT_SECRET}
+    - ALLOWED_ORIGINS=${ALLOWED_ORIGINS:-http://localhost:3000}
+
     volumes:
       - ./web-dashboard/backend:/app
       - /data:/data
+      - ./data/kraken2_db:/kraken2_db:ro  # Kraken2 database
       - ./results:/results  # Pipeline results
       - ./nextflow:/nextflow:ro
-      - /var/run/docker.sock:/var/run/docker.sock  # Docker socket for Nextflow
-      - /tmp:/tmp  # Shared temp directory
+      - /var/run/docker.sock:/var/run/docker.sock:ro  # Docker socket (read-only)
+      - /tmp:/tmp  # Isolated shared temp volume
     networks:
       - upgrade_network
     depends_on:
@@ -466,6 +235,19 @@ services:
       timeout: 10s
       retries: 3
       start_period: 40s
+    # P1 FIX: Graceful shutdown allows running pipelines to complete
+    stop_grace_period: 120s
+    deploy:
+      resources:
+        limits:
+          memory: 4g
+        reservations:
+          memory: 512m
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "100m"
+        max-file: "5"
 
   web-frontend:
     build:
@@ -473,14 +255,78 @@ services:
       dockerfile: Dockerfile
     container_name: ${COMPOSE_PROJECT_NAME}_web_frontend
     ports:
-      - "0.0.0.0:3000:80"
+      - "127.0.0.1:3000:80"
     environment:
-      - REACT_APP_API_URL=http://localhost:8000
+      - REACT_APP_API_URL=
     networks:
       - upgrade_network
     depends_on:
       - web-backend
     restart: unless-stopped
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "50m"
+        max-file: "3"
+
+  rq-worker:
+    build:
+      context: ./web-dashboard/backend
+      dockerfile: Dockerfile
+    container_name: upgrade_rq_worker
+    user: "1000:988"
+    entrypoint: ["python", "/app/worker_init.py"]
+    depends_on:
+      redis:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+    environment:
+      - POSTGRES_HOST=${POSTGRES_HOST}
+      - POSTGRES_PORT=${POSTGRES_PORT}
+      - POSTGRES_DB=${POSTGRES_DB}
+      - POSTGRES_USER=${POSTGRES_USER}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+      - MINIO_ENDPOINT=minio:${MINIO_API_PORT:-9000}
+      - MINIO_EXTERNAL_ENDPOINT=${MINIO_EXTERNAL_ENDPOINT:-localhost:9000}
+      - MINIO_ROOT_USER=${MINIO_ROOT_USER}
+      - MINIO_ROOT_PASSWORD=${MINIO_ROOT_PASSWORD}
+      - REDIS_HOST=${REDIS_HOST}
+      - REDIS_PORT=${REDIS_PORT}
+      - REDIS_PASSWORD=${REDIS_PASSWORD}
+      - RQ_QUEUE_NAME=pipeline-queue
+      - RQ_JOB_TIMEOUT=43200
+      - DOCKER_UID=1000
+      - DOCKER_GID=988
+      - WORK_DIR=/tmp/nf-work
+    volumes:
+      - ./web-dashboard/backend:/app
+      - /data:/data
+      - ./results:/results
+      - ./nextflow:/nextflow:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - /tmp:/tmp
+    restart: unless-stopped
+    networks:
+      - upgrade_network
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import redis; r = redis.Redis(host='$${REDIS_HOST}', port=$${REDIS_PORT}, password='$${REDIS_PASSWORD}'); r.ping()\" || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    deploy:
+      resources:
+        limits:
+          memory: 16g
+        reservations:
+          memory: 2g
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "100m"
+        max-file: "5"
+
 
 # ===========================================
 # NETWORKS
@@ -508,11 +354,3 @@ volumes:
     name: ${COMPOSE_PROJECT_NAME}_zookeeper_data
   zookeeper_logs:
     name: ${COMPOSE_PROJECT_NAME}_zookeeper_logs
-  open_meteo_data:
-    name: ${COMPOSE_PROJECT_NAME}_open_meteo_data
-  prometheus_data:
-    name: ${COMPOSE_PROJECT_NAME}_prometheus_data
-  alertmanager_data:
-    name: ${COMPOSE_PROJECT_NAME}_alertmanager_data
-  grafana_data:
-    name: ${COMPOSE_PROJECT_NAME}_grafana_data

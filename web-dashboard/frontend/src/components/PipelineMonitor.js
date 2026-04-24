@@ -1,13 +1,20 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import './PipelineMonitor.css';
-import API from '../config/api';
+import api from '../services/api';
 
 const PipelineMonitor = ({ pipelineId: propPipelineId, onClose: propOnClose }) => {
   const { id } = useParams();
   const navigate = useNavigate();
   const pipelineId = propPipelineId || id;
-  const onClose = propOnClose || (() => navigate(-1));
+  const onClose = propOnClose || (() => {
+    // Safe fallback: go to pipeline list if there's no history to go back to
+    if (window.history.length > 1) {
+      navigate(-1);
+    } else {
+      navigate('/pipeline');
+    }
+  });
   
   const [status, setStatus] = useState(null);
   const [log, setLog] = useState('');
@@ -20,13 +27,11 @@ const PipelineMonitor = ({ pipelineId: propPipelineId, onClose: propOnClose }) =
   // Load pipeline status
   const loadStatus = async () => {
     try {
-      const response = await fetch(`${API.API_BASE_URL}/api/monitoring/pipeline/${pipelineId}/status`);
-      if (!response.ok) throw new Error('Failed to load status');
-      const data = await response.json();
-      setStatus(data);
+      const response = await api.get(`/api/monitoring/pipeline/${pipelineId}/status`);
+      setStatus(response.data);
       setError(null);
     } catch (err) {
-      setError(err.message);
+      setError(err.response?.data?.error || err.message);
     } finally {
       setLoading(false);
     }
@@ -35,12 +40,10 @@ const PipelineMonitor = ({ pipelineId: propPipelineId, onClose: propOnClose }) =
   // Load pipeline logs
   const loadLog = async () => {
     try {
-      const response = await fetch(
-        `${API.API_BASE_URL}/api/monitoring/pipeline/${pipelineId}/log?lines=200&log_type=${logType}`
+      const response = await api.get(
+        `/api/monitoring/pipeline/${pipelineId}/log?lines=200&log_type=${logType}`
       );
-      if (!response.ok) throw new Error('Failed to load log');
-      const data = await response.json();
-      setLog(data.content || '');
+      setLog(response.data.content || '');
     } catch (err) {
       console.error('Error loading log:', err);
     }

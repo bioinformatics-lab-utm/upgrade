@@ -1,8 +1,6 @@
 #!/usr/bin/env python3
 """
 UPGRADE CLI - Command Line Interface for Pipeline Management
-
-Управление геномными пайплайнами через командную строку
 """
 
 import sys
@@ -14,7 +12,6 @@ from typing import Optional, Dict, List
 import asyncio
 from datetime import datetime
 
-# Добавляем путь к модулям
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 import asyncpg
@@ -33,12 +30,11 @@ console = Console()
 
 
 class UpgradeCLI:
-    """CLI для управления UPGRADE пайплайнами"""
-    
+    """CLI for managing UPGRADE pipelines."""
+
     def __init__(self, api_url: str = None, db_config: Dict = None):
         self.api_url = api_url or os.getenv('UPGRADE_API_URL', 'http://localhost:8000')
-        
-        # Читаем конфигурацию
+
         config = Config()
         self.db_config = db_config or {
             'host': config.POSTGRES_HOST,
@@ -50,19 +46,19 @@ class UpgradeCLI:
         self.db_pool = None
         
     async def init_db(self):
-        """Инициализация подключения к БД"""
+        """Initialize database connection pool."""
         if not self.db_pool:
             self.db_pool = await asyncpg.create_pool(**self.db_config, min_size=1, max_size=3)
     
     async def close_db(self):
-        """Закрытие подключения к БД"""
+        """Close database connection pool."""
         if self.db_pool:
             await self.db_pool.close()
     
     # ==================== SAMPLES ====================
     
     async def list_samples(self, limit: int = 50, status: str = None):
-        """Список всех образцов"""
+        """List all samples."""
         await self.init_db()
         
         query = """
@@ -117,7 +113,7 @@ class UpgradeCLI:
         console.print(table)
     
     async def get_sample(self, sample_code: str):
-        """Получить детали образца"""
+        """Get sample details."""
         await self.init_db()
         
         query = """
@@ -155,7 +151,7 @@ class UpgradeCLI:
         date_from: str = None,
         date_to: str = None
     ):
-        """Список пайплайнов"""
+        """List pipeline runs."""
         await self.init_db()
         
         query = """
@@ -242,21 +238,21 @@ class UpgradeCLI:
         console.print(table)
     
     async def get_pipeline(self, pipeline_id: int):
-        """Получить детали пайплайна"""
+        """Get pipeline run details."""
         await self.init_db()
-        
+
         query = """
             SELECT * FROM pipeline_runs WHERE pipeline_id = $1
         """
-        
+
         async with self.db_pool.acquire() as conn:
             row = await conn.fetchrow(query, pipeline_id)
-        
+
         if not row:
             console.print(f"[red]❌ Pipeline {pipeline_id} not found[/red]")
             return
-        
-        # Рассчитываем время выполнения
+
+        # Calculate runtime
         runtime = None
         if row['started_at'] and row['completed_at']:
             delta = row['completed_at'] - row['started_at']
@@ -287,7 +283,7 @@ class UpgradeCLI:
         console.print(panel)
     
     async def get_pipeline_progress(self, pipeline_id: int):
-        """Получить прогресс пайплайна"""
+        """Get pipeline progress events."""
         await self.init_db()
         
         query = """
@@ -348,16 +344,14 @@ class UpgradeCLI:
         skip_qc: bool = False,
         skip_assembly: bool = False
     ):
-        """Запустить новый пайплайн"""
+        """Start a new pipeline run."""
         console.print(f"[cyan]🚀 Starting pipeline for sample: {sample_code}[/cyan]")
-        
-        # Проверяем файлы
+
         for fastq_file in fastq_files:
             if not Path(fastq_file).exists():
                 console.print(f"[red]❌ File not found: {fastq_file}[/red]")
                 return
-        
-        # Через API
+
         async with httpx.AsyncClient() as client:
             files = []
             for fastq_file in fastq_files:
@@ -391,7 +385,7 @@ class UpgradeCLI:
                     file.close()
     
     async def cancel_pipeline(self, pipeline_id: int):
-        """Отменить пайплайн"""
+        """Cancel a pipeline run."""
         await self.init_db()
         
         console.print(f"[yellow]🚫 Cancelling pipeline {pipeline_id}...[/yellow]")
@@ -414,10 +408,9 @@ class UpgradeCLI:
     # ==================== RESULTS ====================
     
     async def get_results(self, pipeline_id: int, output_format: str = 'table'):
-        """Получить результаты пайплайна"""
+        """Get pipeline results."""
         await self.init_db()
-        
-        # Получаем путь к результатам
+
         query = """
             SELECT results_path FROM pipeline_runs WHERE pipeline_id = $1
         """
@@ -429,22 +422,20 @@ class UpgradeCLI:
             console.print(f"[red]❌ No results found for pipeline {pipeline_id}[/red]")
             return
         
-        results_path = Path('/home/nicolaedrabcinski/upgrade/results') / row['results_path']
+        base_results = Path(os.environ.get('UPGRADE_BASE_DIR', str(Path(__file__).parent.parent.parent))) / 'results'
+        results_path = base_results / row['results_path']
         summary_file = results_path / '00_summary' / f"{row['results_path']}_summary.json"
-        
+
         if not summary_file.exists():
             console.print(f"[yellow]⚠️ Summary file not found: {summary_file}[/yellow]")
             return
         
-        # Читаем summary
         with open(summary_file, 'r') as f:
             summary = json.load(f)
-        
+
         if output_format == 'json':
             console.print(JSON(json.dumps(summary, indent=2)))
             return
-        
-        # Форматированный вывод
         console.print(Panel(
             f"[bold cyan]Pipeline ID:[/bold cyan] {pipeline_id}\n"
             f"[bold cyan]Sample:[/bold cyan] {summary.get('sample_code', 'N/A')}\n"
@@ -523,7 +514,7 @@ class UpgradeCLI:
                 )
     
     async def export_results(self, pipeline_id: int, output_file: str):
-        """Экспортировать результаты в файл"""
+        """Export pipeline results to a file."""
         await self.init_db()
         
         query = """
@@ -537,14 +528,14 @@ class UpgradeCLI:
             console.print(f"[red]❌ No results found for pipeline {pipeline_id}[/red]")
             return
         
-        results_path = Path('/home/nicolaedrabcinski/upgrade/results') / row['results_path']
+        base_results = Path(os.environ.get('UPGRADE_BASE_DIR', str(Path(__file__).parent.parent.parent))) / 'results'
+        results_path = base_results / row['results_path']
         summary_file = results_path / '00_summary' / f"{row['results_path']}_summary.json"
-        
+
         if not summary_file.exists():
             console.print(f"[yellow]⚠️ Summary file not found[/yellow]")
             return
         
-        # Копируем файл
         import shutil
         shutil.copy(summary_file, output_file)
         console.print(f"[green]✅ Results exported to: {output_file}[/green]")
@@ -552,28 +543,24 @@ class UpgradeCLI:
     # ==================== STATISTICS ====================
     
     async def show_stats(self):
-        """Показать общую статистику"""
+        """Show system-wide statistics."""
         await self.init_db()
-        
+
         async with self.db_pool.acquire() as conn:
-            # Общая статистика
             total_samples = await conn.fetchval("SELECT COUNT(*) FROM samples")
             total_pipelines = await conn.fetchval("SELECT COUNT(*) FROM pipeline_runs")
-            
-            # По статусам
+
             pipeline_stats = await conn.fetch("""
                 SELECT status, COUNT(*) as count
                 FROM pipeline_runs
                 GROUP BY status
                 ORDER BY count DESC
             """)
-            
-            # Успешные пайплайны
+
             completed = await conn.fetchval(
                 "SELECT COUNT(*) FROM pipeline_runs WHERE status = 'completed'"
             )
-            
-            # Средняя длительность
+
             avg_runtime = await conn.fetchval("""
                 SELECT AVG(EXTRACT(EPOCH FROM (completed_at - started_at)) / 60)
                 FROM pipeline_runs
@@ -590,7 +577,6 @@ class UpgradeCLI:
         )
         console.print(panel)
         
-        # Таблица по статусам
         table = Table(title="Pipeline Status Distribution", show_header=True)
         table.add_column("Status", style="cyan", width=20)
         table.add_column("Count", style="green", width=10)
@@ -714,10 +700,8 @@ Examples:
         parser.print_help()
         return
     
-    # Создаем CLI
     cli = UpgradeCLI(api_url=args.api_url)
     
-    # Выполняем команду
     try:
         if args.command == 'samples':
             if args.action == 'list':

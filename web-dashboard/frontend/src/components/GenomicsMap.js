@@ -1,74 +1,15 @@
-import React, { useState, useEffect, useRef } from 'react';
-import { MapContainer, TileLayer, Marker, Popup, CircleMarker, useMap } from 'react-leaflet';
-import L from 'leaflet';
-import 'leaflet.heat';
-import axios from 'axios';
-import API from '../config/api';
+import React, { useState, useEffect } from 'react';
+import { MapContainer, TileLayer, Popup, CircleMarker } from 'react-leaflet';
+import api from '../services/api';
 import logger from '../utils/logger';
 import './GenomicsMap.css';
 
-const API_URL = API.API_BASE_URL;
+const API_URL = '';
 logger.log('[GenomicsMap] API_URL:', API_URL);
-
-// Heatmap Layer Component
-const HeatmapLayer = ({ data }) => {
-  const map = useMap();
-  const heatLayerRef = useRef(null);
-
-  useEffect(() => {
-    if (!map || !data || data.length === 0) return;
-
-    // Remove old heat layer if exists
-    if (heatLayerRef.current) {
-      map.removeLayer(heatLayerRef.current);
-    }
-
-    // Normalize temperatures to 0-1 range for intensity
-    const temps = data.map(d => d.temperature);
-    const minTemp = Math.min(...temps);
-    const maxTemp = Math.max(...temps);
-    const tempRange = maxTemp - minTemp || 1;
-
-    // Create heat points: [lat, lon, intensity]
-    const heatPoints = data.map(location => {
-      const normalizedIntensity = (location.temperature - minTemp) / tempRange;
-      return [location.lat, location.lon, normalizedIntensity];
-    });
-
-    // Create gradient based on temperature colors
-    const gradient = {
-      0.0: '#0066ff',  // Cold (blue)
-      0.2: '#00ccff',  // Cool (cyan)
-      0.4: '#00ff00',  // Mild (green)
-      0.6: '#ffff00',  // Warm (yellow)
-      0.8: '#ff9900',  // Hot (orange)
-      1.0: '#ff0000'   // Very hot (red)
-    };
-
-    // Create heat layer
-    heatLayerRef.current = L.heatLayer(heatPoints, {
-      radius: 80,
-      blur: 50,
-      maxZoom: 10,
-      max: 1.0,
-      gradient: gradient
-    }).addTo(map);
-
-    return () => {
-      if (heatLayerRef.current) {
-        map.removeLayer(heatLayerRef.current);
-      }
-    };
-  }, [map, data]);
-
-  return null;
-};
 
 const GenomicsMap = () => {
   const [samples, setSamples] = useState([]);
-  const [weatherData, setWeatherData] = useState([]);
   const [selectedSample, setSelectedSample] = useState(null);
-  const [mapLayer, setMapLayer] = useState('samples'); // 'samples' or 'weather'
   const [filters, setFilters] = useState({
     dateRange: 'all',
     sampleType: 'all',
@@ -82,87 +23,11 @@ const GenomicsMap = () => {
 
   useEffect(() => {
     loadSamples();
-    loadWeatherData();
-    // Update weather every 10 minutes
-    const interval = setInterval(loadWeatherData, 10 * 60 * 1000);
-    return () => clearInterval(interval);
   }, [filters]);
-
-  const loadWeatherData = async () => {
-    const locations = [
-      { lat: 44.4268, lon: 26.1025, name: 'Bucharest', temp: 18.5, wind: 12.3, dir: 225 },
-      { lat: 46.7712, lon: 23.6236, name: 'Cluj-Napoca', temp: 15.2, wind: 8.7, dir: 180 },
-      { lat: 45.7489, lon: 21.2087, name: 'Timișoara', temp: 17.8, wind: 10.5, dir: 270 },
-      { lat: 47.1585, lon: 27.6014, name: 'Iași', temp: 14.3, wind: 15.2, dir: 90 },
-      { lat: 44.1598, lon: 28.6348, name: 'Constanța', temp: 19.7, wind: 18.5, dir: 135 },
-      { lat: 45.6427, lon: 25.5887, name: 'Brașov', temp: 12.5, wind: 6.3, dir: 315 },
-      { lat: 44.3167, lon: 23.8000, name: 'Craiova', temp: 20.1, wind: 9.8, dir: 200 },
-      { lat: 47.6500, lon: 23.5833, name: 'Baia Mare', temp: 13.8, wind: 11.2, dir: 45 },
-      { lat: 45.4333, lon: 28.0500, name: 'Galați', temp: 16.9, wind: 14.7, dir: 160 },
-      { lat: 46.5667, lon: 26.9167, name: 'Bacău', temp: 15.5, wind: 7.9, dir: 250 }
-    ];
-
-    try {
-      // Try to get real data from Open-Meteo API
-      const apiHost = window.location.hostname;
-      const weatherPromises = locations.map(async (loc) => {
-        try {
-          const res = await axios.get(`http://${apiHost}:8080/v1/forecast`, {
-            params: {
-              latitude: loc.lat,
-              longitude: loc.lon,
-              current_weather: true
-            },
-            timeout: 3000
-          });
-          
-          const weather = res.data.current_weather;
-          // Use real data if available, otherwise use mock data
-          if (weather && weather.temperature !== null && weather.temperature !== undefined) {
-            return {
-              lat: loc.lat,
-              lon: loc.lon,
-              name: loc.name,
-              temperature: weather.temperature,
-              windspeed: weather.windspeed || 0,
-              winddirection: weather.winddirection || 0
-            };
-          }
-        } catch (err) {
-          console.log(`Using mock data for ${loc.name}`);
-        }
-        
-        // Fallback to mock data
-        return {
-          lat: loc.lat,
-          lon: loc.lon,
-          name: loc.name,
-          temperature: loc.temp,
-          windspeed: loc.wind,
-          winddirection: loc.dir
-        };
-      });
-
-      const results = await Promise.all(weatherPromises);
-      console.log('Weather data loaded:', results.length, 'locations');
-      setWeatherData(results);
-    } catch (error) {
-      console.error('Error loading weather data:', error);
-      // Use mock data as complete fallback
-      setWeatherData(locations.map(loc => ({
-        lat: loc.lat,
-        lon: loc.lon,
-        name: loc.name,
-        temperature: loc.temp,
-        windspeed: loc.wind,
-        winddirection: loc.dir
-      })));
-    }
-  };
 
   const loadSamples = async () => {
     try {
-      const response = await axios.get(`${API_URL}/api/samples/map`, {
+      const response = await api.get(`${API_URL}/api/samples/map`, {
         params: filters
       });
       setSamples(response.data.samples || []);
@@ -183,46 +48,10 @@ const GenomicsMap = () => {
     return Math.max(8, Math.min(20, sample.amr_genes_count * 2));
   };
 
-  const getTemperatureColor = (temp) => {
-    if (temp < 0) return '#0066ff';
-    if (temp < 10) return '#00ccff';
-    if (temp < 20) return '#00ff00';
-    if (temp < 25) return '#ffff00';
-    if (temp < 30) return '#ff9900';
-    return '#ff0000';
-  };
-
-  const getTemperatureSize = (temp) => {
-    return Math.abs(temp) + 15; // Base size 15 + temperature
-  };
-
   return (
     <div className="genomics-map-container">
       {/* Header Stats */}
       <div className="map-header">
-        <div className="map-header-left">
-          <div className="layer-switcher">
-            <button 
-              className={mapLayer === 'samples' ? 'active' : ''}
-              onClick={() => setMapLayer('samples')}
-            >
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor">
-                <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" strokeWidth="2"/>
-                <polyline points="14 2 14 8 20 8" strokeWidth="2"/>
-              </svg>
-              Samples
-            </button>
-            <button 
-              className={mapLayer === 'weather' ? 'active' : ''}
-              onClick={() => setMapLayer('weather')}
-            >
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor">
-                <path d="M18 10h-1.26A8 8 0 1 0 9 20h9a5 5 0 0 0 0-10z" strokeWidth="2"/>
-              </svg>
-              Weather
-            </button>
-          </div>
-        </div>
         <div className="map-stats">
           <div className="stat-card">
             <div className="stat-value">{stats.totalSamples}</div>
@@ -285,7 +114,7 @@ const GenomicsMap = () => {
             attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
           />
 
-          {mapLayer === 'samples' && samples.map((sample) => (
+          {samples.map((sample) => (
             sample.latitude && sample.longitude && (
               <CircleMarker
                 key={sample.sample_id}
@@ -322,100 +151,27 @@ const GenomicsMap = () => {
             )
           ))}
 
-          {mapLayer === 'weather' && <HeatmapLayer data={weatherData} />}
-
-          {mapLayer === 'weather' && weatherData.map((weather, index) => (
-            <CircleMarker
-              key={`weather-marker-${index}`}
-              center={[weather.lat, weather.lon]}
-              radius={5}
-              fillColor="#ffffff"
-              color="#333"
-              weight={1}
-              opacity={1}
-              fillOpacity={0.8}
-            >
-              <Popup>
-                <div className="weather-popup">
-                  <h3>{weather.name}</h3>
-                  <div className="weather-popup-content">
-                    <div className="weather-metric">
-                      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor">
-                        <path d="M14 14.76V3.5a2.5 2.5 0 0 0-5 0v11.26a4.5 4.5 0 1 0 5 0z" strokeWidth="2"/>
-                      </svg>
-                      <strong>{weather.temperature.toFixed(1)}°C</strong>
-                    </div>
-                    <div className="weather-metric">
-                      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor">
-                        <path d="M9.59 4.59A2 2 0 1 1 11 8H2m10.59 11.41A2 2 0 1 0 14 16H2" strokeWidth="2"/>
-                      </svg>
-                      <span>{weather.windspeed.toFixed(1)} km/h</span>
-                    </div>
-                    <div className="weather-metric">
-                      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor">
-                        <circle cx="12" cy="12" r="10" strokeWidth="2"/>
-                        <polyline points="12 6 12 12 16 14" strokeWidth="2"/>
-                      </svg>
-                      <span>{weather.winddirection}°</span>
-                    </div>
-                  </div>
-                </div>
-              </Popup>
-            </CircleMarker>
-          ))}
         </MapContainer>
 
         {/* Legend */}
         <div className="map-legend">
-          {mapLayer === 'samples' ? (
-            <>
-              <h4>AMR Gene Count</h4>
-              <div className="legend-item">
-                <span className="legend-color" style={{background: '#dc3545'}}></span>
-                <span>High (10+)</span>
-              </div>
-              <div className="legend-item">
-                <span className="legend-color" style={{background: '#ffc107'}}></span>
-                <span>Medium (5-10)</span>
-              </div>
-              <div className="legend-item">
-                <span className="legend-color" style={{background: '#28a745'}}></span>
-                <span>Low (1-5)</span>
-              </div>
-              <div className="legend-item">
-                <span className="legend-color" style={{background: '#6c757d'}}></span>
-                <span>None (0)</span>
-              </div>
-            </>
-          ) : (
-            <>
-              <h4>Temperature (°C)</h4>
-              <div className="legend-item">
-                <span className="legend-color" style={{background: '#ff0000'}}></span>
-                <span>Hot (30+)</span>
-              </div>
-              <div className="legend-item">
-                <span className="legend-color" style={{background: '#ff9900'}}></span>
-                <span>Warm (25-30)</span>
-              </div>
-              <div className="legend-item">
-                <span className="legend-color" style={{background: '#ffff00'}}></span>
-                <span>Mild (20-25)</span>
-              </div>
-              <div className="legend-item">
-                <span className="legend-color" style={{background: '#00ff00'}}></span>
-                <span>Cool (10-20)</span>
-              </div>
-              <div className="legend-item">
-                <span className="legend-color" style={{background: '#00ccff'}}></span>
-                <span>Cold (0-10)</span>
-              </div>
-              <div className="legend-item">
-                <span className="legend-color" style={{background: '#0066ff'}}></span>
-                <span>Freezing (&lt;0)</span>
-              </div>
-            </>
-          )}
+          <h4>AMR Gene Count</h4>
+          <div className="legend-item">
+            <span className="legend-color" style={{background: '#dc3545'}}></span>
+            <span>High (10+)</span>
+          </div>
+          <div className="legend-item">
+            <span className="legend-color" style={{background: '#ffc107'}}></span>
+            <span>Medium (5-10)</span>
+          </div>
+          <div className="legend-item">
+            <span className="legend-color" style={{background: '#28a745'}}></span>
+            <span>Low (1-5)</span>
+          </div>
+          <div className="legend-item">
+            <span className="legend-color" style={{background: '#6c757d'}}></span>
+            <span>None (0)</span>
+          </div>
         </div>
       </div>
 

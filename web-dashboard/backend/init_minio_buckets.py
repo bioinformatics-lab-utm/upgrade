@@ -15,7 +15,6 @@ REQUIRED_BUCKETS = [
     'genomic-bronze',
     'genomic-silver',
     'genomic-gold',
-    'weather-data'
 ]
 
 def init_buckets(max_retries=5):

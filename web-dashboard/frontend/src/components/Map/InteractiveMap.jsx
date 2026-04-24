@@ -1,8 +1,8 @@
 import React, { useState, useEffect } from 'react';
-import { MapContainer, TileLayer, Marker, Popup, CircleMarker } from 'react-leaflet';
+import { MapContainer, TileLayer, Marker, Popup } from 'react-leaflet';
 import L from 'leaflet';
-import io from 'socket.io-client';
 import 'leaflet/dist/leaflet.css';
+import logger from '../../utils/logger';
 
 // Custom icons for different risk levels
 const createCustomIcon = (riskLevel, sampleType) => {
@@ -16,7 +16,6 @@ const createCustomIcon = (riskLevel, sampleType) => {
   const icons = {
     'user_upload': '🧬',
     'sra_auto': '📊',
-    'weather': '🌡️'
   };
 
   return L.divIcon({
@@ -44,56 +43,25 @@ const createCustomIcon = (riskLevel, sampleType) => {
 
 const InteractiveMap = () => {
   const [samples, setSamples] = useState([]);
-  const [weather, setWeather] = useState([]);
   const [stats, setStats] = useState({});
   const [loading, setLoading] = useState(true);
   const [selectedSample, setSelectedSample] = useState(null);
   const [filters, setFilters] = useState({
     riskLevel: 'all',
     sampleType: 'all',
-    showWeather: true
   });
-
-  // WebSocket connection
-  useEffect(() => {
-    const socket = io('ws://localhost:8000');
-    
-    socket.on('connect', () => {
-      console.log('Connected to WebSocket');
-    });
-
-    socket.on('processing_update', (data) => {
-      console.log('Processing update:', data);
-      // Update samples with new processing status
-      setSamples(prevSamples => 
-        prevSamples.map(sample => 
-          sample.id === data.data.sample_id 
-            ? { ...sample, status: data.data.status }
-            : sample
-        )
-      );
-    });
-
-    socket.on('sample_uploaded', (data) => {
-      console.log('New sample uploaded:', data);
-      fetchSamples(); // Refresh samples
-    });
-
-    return () => socket.disconnect();
-  }, []);
 
   // Fetch initial data
   useEffect(() => {
     Promise.all([
       fetchSamples(),
-      fetchWeather(),
       fetchStats()
     ]).finally(() => setLoading(false));
   }, []);
 
   const fetchSamples = async () => {
     try {
-      const response = await fetch('/api/samples');
+      const response = await fetch('/api/samples/map');
       const data = await response.json();
       setSamples(data.samples);
     } catch (error) {
@@ -101,19 +69,9 @@ const InteractiveMap = () => {
     }
   };
 
-  const fetchWeather = async () => {
-    try {
-      const response = await fetch('/api/weather');
-      const data = await response.json();
-      setWeather(data.weather);
-    } catch (error) {
-      console.error('Error fetching weather:', error);
-    }
-  };
-
   const fetchStats = async () => {
     try {
-      const response = await fetch('/api/stats');
+      const response = await fetch('/api/samples/stats');
       const data = await response.json();
       setStats(data);
     } catch (error) {
@@ -219,18 +177,7 @@ const InteractiveMap = () => {
           </select>
         </div>
 
-        <div className="filter-group">
-          <label>
-            <input 
-              type="checkbox" 
-              checked={filters.showWeather}
-              onChange={(e) => setFilters({...filters, showWeather: e.target.checked})}
-            />
-            Show Weather Data
-          </label>
-        </div>
-
-        <button onClick={() => {fetchSamples(); fetchWeather(); fetchStats();}}>
+        <button onClick={() => {fetchSamples(); fetchStats();}}>
           Refresh Data
         </button>
       </div>
@@ -263,29 +210,6 @@ const InteractiveMap = () => {
           </Marker>
         ))}
 
-        {/* Weather Markers */}
-        {filters.showWeather && weather.map((w, index) => (
-          <CircleMarker
-            key={`weather-${index}`}
-            center={[w.latitude, w.longitude]}
-            radius={8}
-            fillColor="lightblue"
-            color="blue"
-            weight={2}
-            fillOpacity={0.6}
-          >
-            <Popup>
-              <div className="weather-popup">
-                <h4>{w.location_name}</h4>
-                <p>Temperature: {w.temperature_celsius}°C</p>
-                <p>Humidity: {w.humidity_percent}%</p>
-                <p>Precipitation: {w.precipitation_mm} mm</p>
-                <p>Wind: {w.wind_speed_kmh} km/h</p>
-                <p>Updated: {new Date(w.measured_at).toLocaleString()}</p>
-              </div>
-            </Popup>
-          </CircleMarker>
-        ))}
       </MapContainer>
 
       {/* Sample Details Panel */}

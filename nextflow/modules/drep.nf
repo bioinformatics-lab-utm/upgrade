@@ -11,8 +11,8 @@ process DREP {
     tuple val(sample_id), path(bins, stageAs: 'bins/*')
 
     output:
-    tuple val(sample_id), path("${sample_id}_drep/dereplicated_genomes/*.fa"), emit: dereplicated_bins
-    tuple val(sample_id), path("${sample_id}_drep/data_tables/*.csv"), emit: data_tables
+    tuple val(sample_id), path("${sample_id}_drep/dereplicated_genomes/*.fa"), emit: dereplicated_bins, optional: true
+    tuple val(sample_id), path("${sample_id}_drep/data_tables/*.csv"), emit: data_tables, optional: true
     tuple val(sample_id), path("${sample_id}_drep/figures/*.pdf"), emit: figures, optional: true
     tuple val(sample_id), path("${sample_id}_drep.log"), emit: log
     path "versions.yml", emit: versions
@@ -52,18 +52,41 @@ process DREP {
     echo "Total bins to dereplicate: \$TOTAL_BINS" | tee -a ${sample_id}_drep.log
     
     if [ \$TOTAL_BINS -eq 0 ]; then
-        echo "ERROR: No bins found for dereplication" | tee -a ${sample_id}_drep.log
-        # Create empty output directories
+        echo "WARNING: No bins found for dereplication — skipping dRep" | tee -a ${sample_id}_drep.log
         mkdir -p ${sample_id}_drep/dereplicated_genomes
         mkdir -p ${sample_id}_drep/data_tables
-        mkdir -p ${sample_id}_drep/figures
-        touch ${sample_id}_drep/dereplicated_genomes/.no_bins
-        touch ${sample_id}_drep/data_tables/empty.csv
+        DREP_VER=\$(dRep --version 2>&1 | grep -o 'dRep v[0-9.]*' | sed 's/dRep v//' || echo "3.4.5")
+        printf '"${task.process}":\n    drep: %s\n' "\$DREP_VER" > versions.yml
         exit 0
     fi
     
-    # Run dRep dereplicate workflow
-    echo "Running dRep dereplicate..." | tee -a ${sample_id}_drep.log
+    # Special case: if only 1 bin, skip dRep and copy it as representative
+    if [ \$TOTAL_BINS -eq 1 ]; then
+        echo "Only 1 bin found - skipping dRep (requires >=2 bins)" | tee -a ${sample_id}_drep.log
+        echo "Copying single bin as dereplicated representative..." | tee -a ${sample_id}_drep.log
+        
+        # Create output directories
+        mkdir -p ${sample_id}_drep/dereplicated_genomes
+        mkdir -p ${sample_id}_drep/data_tables
+        mkdir -p ${sample_id}_drep/figures
+        
+        # Copy the single bin
+        cp ${sample_id}_all_bins/*.fa ${sample_id}_drep/dereplicated_genomes/
+        
+        # Create minimal CSV for compatibility
+        echo "genome,cluster" > ${sample_id}_drep/data_tables/Cdb.csv
+        BINNAME=\$(basename ${sample_id}_all_bins/*.fa)
+        echo "\$BINNAME,1" >> ${sample_id}_drep/data_tables/Cdb.csv
+        
+        echo "genome" > ${sample_id}_drep/data_tables/Widb.csv
+        echo "\$BINNAME" >> ${sample_id}_drep/data_tables/Widb.csv
+        
+        echo "Single bin dereplication completed: \$(date)" | tee -a ${sample_id}_drep.log
+        echo "Dereplicated bins (representatives): 1" | tee -a ${sample_id}_drep.log
+        echo "Reduction: 0 bins removed (0% reduction)" | tee -a ${sample_id}_drep.log
+    else
+        # Run dRep dereplicate workflow for multiple bins
+        echo "Running dRep dereplicate..." | tee -a ${sample_id}_drep.log
     
     dRep dereplicate \\
         ${sample_id}_drep \\
@@ -80,7 +103,8 @@ process DREP {
         ${args} \\
         2>&1 | tee -a ${sample_id}_drep.log
     
-    echo "dRep analysis completed: \$(date)" | tee -a ${sample_id}_drep.log
+        echo "dRep analysis completed: \$(date)" | tee -a ${sample_id}_drep.log
+    fi
     
     # Count dereplicated bins
     if [ -d "${sample_id}_drep/dereplicated_genomes" ]; then
@@ -118,22 +142,18 @@ process DREP {
         awk -F',' 'NR>1 {print \$1}' ${sample_id}_drep/data_tables/Widb.csv | tee -a ${sample_id}_drep.log
     fi
     
-    # Create placeholder if no bins after dereplication (unlikely but possible)
+    # Report if no bins remain after dereplication
     if [ ! -d "${sample_id}_drep/dereplicated_genomes" ] || [ \$(ls ${sample_id}_drep/dereplicated_genomes/*.fa 2>/dev/null | wc -l) -eq 0 ]; then
-        mkdir -p ${sample_id}_drep/dereplicated_genomes
-        touch ${sample_id}_drep/dereplicated_genomes/.no_dereplicated_bins
         echo "WARNING: No dereplicated bins generated" | tee -a ${sample_id}_drep.log
+        mkdir -p ${sample_id}_drep/dereplicated_genomes
     fi
-    
+
     # Ensure data_tables directory exists
     if [ ! -d "${sample_id}_drep/data_tables" ]; then
         mkdir -p ${sample_id}_drep/data_tables
-        touch ${sample_id}_drep/data_tables/empty.csv
     fi
 
-    cat <<-END_VERSIONS > versions.yml
-    "${task.process}":
-        drep: \$(dRep --version 2>&1 | grep -o 'dRep v[0-9.]*' | sed 's/dRep v//' || echo "3.4.5")
-    END_VERSIONS
+    DREP_VER=\$(dRep --version 2>&1 | grep -o 'dRep v[0-9.]*' | sed 's/dRep v//' || echo "3.4.5")
+    printf '"${task.process}":\n    drep: %s\n' "\$DREP_VER" > versions.yml
     """
 }

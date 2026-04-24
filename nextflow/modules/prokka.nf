@@ -26,7 +26,11 @@ process PROKKA {
     def species = params.prokka_species ?: ''
     def genus_opt = genus ? "--genus ${genus}" : ''
     def species_opt = species ? "--species ${species}" : ''
+    // Sanitize locustag: replace dots/special chars with underscores, truncate to 10 chars
+    // (--compliant mode: contig IDs must be <= 37 chars, prefix uses locustag)
+    def safe_locustag = bin_name.replaceAll('[^A-Za-z0-9_]', '_').take(10)
     """
+    export LOGNAME=upgrade
     prokka \\
         --outdir ${bin_name} \\
         --prefix ${bin_name} \\
@@ -36,10 +40,9 @@ process PROKKA {
         --cpus ${task.cpus} \\
         --force \\
         --addgenes \\
-        --addmrna \\
         --compliant \\
         --centre UPGRADE \\
-        --locustag ${bin_name} \\
+        --locustag ${safe_locustag} \\
         ${assembly}
     
     # Version info

@@ -7,7 +7,7 @@ import PipelineResultsDashboard from './components/PipelineResultsDashboard';
 import PipelineMonitor from './components/PipelineMonitor';
 import Login from './components/Login';
 import Register from './components/Register';
-import VerifyEmail from './components/VerifyEmail';
+import ErrorBoundary from './components/ErrorBoundary';
 import API from './config/api';
 import 'leaflet/dist/leaflet.css';
 import './App.css';
@@ -36,13 +36,13 @@ function App() {
       setUser(JSON.parse(storedUser));
     }
 
-    // Fetch system status
+    // Fetch system status from health endpoint
     fetch(API.endpoints.health)
       .then(res => res.json())
-      .then(data => setSystemStatus({ 
+      .then(data => setSystemStatus({
         health: data.status,
-        samples: 142, // Mock data - replace with real API
-        pipelines: 24 
+        samples: data.samples_count || 0,
+        pipelines: data.active_pipelines || 0
       }))
       .catch(() => setSystemStatus({ health: 'error', samples: 0, pipelines: 0 }));
 
@@ -204,7 +204,7 @@ function App() {
                     <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
                     <path d="M13.73 21a2 2 0 0 1-3.46 0" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
                   </svg>
-                  <span className="notification-badge">3</span>
+                  <span className="notification-badge">0</span>
                 </button>
                 <div className="user-profile">
                   <div className="user-avatar" title={user.username}>
@@ -235,7 +235,6 @@ function App() {
           <Routes>
             <Route path="/login" element={<Login onLogin={handleLogin} />} />
             <Route path="/register" element={<Register onLogin={handleLogin} />} />
-            <Route path="/verify-email" element={<VerifyEmail />} />
             <Route path="/" element={
               <ProtectedRoute>
                 <GenomicsMap />
@@ -270,9 +269,9 @@ function App() {
         <footer className="app-footer">
           <div className="footer-content">
             <div className="footer-section">
-              <span className="footer-text">© 2025 UPGRADE Platform</span>
+              <span className="footer-text">© 2025-2026 UPGRADE Platform</span>
               <span className="footer-separator">•</span>
-              <span className="footer-text">Build v2.1.0</span>
+              <span className="footer-text">Build v0.9.0</span>
             </div>
             <div className="footer-section">
               <span className="footer-text">Powered by Nextflow & React</span>
@@ -284,4 +283,13 @@ function App() {
   );
 }
 
-export default App;
+// Wrap App with ErrorBoundary
+function AppWithErrorBoundary() {
+  return (
+    <ErrorBoundary>
+      <App />
+    </ErrorBoundary>
+  );
+}
+
+export default AppWithErrorBoundary;

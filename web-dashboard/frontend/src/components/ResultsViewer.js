@@ -12,11 +12,10 @@ import {
   CheckCircle, Error, Schedule, PlayArrow, Cancel,
   Place, CalendarToday, Science, Refresh, ExpandMore, Timer
 } from '@mui/icons-material';
-import axios from 'axios';
-import API from '../config/api';
+import api from '../services/api';
 import './ResultsViewer.css';
 
-const API_BASE_URL = API.API_BASE_URL;
+const API_BASE_URL = '';
 
 function ResultsViewer() {
   const navigate = useNavigate();
@@ -53,7 +52,7 @@ function ResultsViewer() {
       filtered = filtered.filter(r => 
         r.sample_code?.toLowerCase().includes(searchQuery.toLowerCase()) ||
         r.location?.name?.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        r.id?.toString().includes(searchQuery)
+        r.pipeline_id?.toString().includes(searchQuery)
       );
     }
     setFilteredRuns(filtered);
@@ -76,7 +75,7 @@ function ResultsViewer() {
       if (amrRiskRange[1] < 10) params.append('max_amr_risk', amrRiskRange[1]);
       
       const url = `${API_BASE_URL}/api/pipeline/runs${params.toString() ? '?' + params.toString() : ''}`;
-      const response = await axios.get(url, { timeout: 10000 });
+      const response = await api.get(url, { timeout: 10000 });
       setRuns(response.data.runs || []);
       setError(null);
     } catch (err) {
@@ -258,8 +257,8 @@ function ResultsViewer() {
                 </Box>
               </TableCell></TableRow>
             ) : paginatedRuns.map((r) => (
-              <TableRow key={r.id} hover sx={{'&:hover':{backgroundColor:'action.hover'},cursor:'pointer'}} onClick={()=>navigate(`/results/${r.sample_code||r.id}`)}>
-                <TableCell><Typography variant="body2" fontWeight="medium" color="primary">#{r.id}</Typography></TableCell>
+              <TableRow key={r.pipeline_id} hover sx={{'&:hover':{backgroundColor:'action.hover'},cursor:'pointer'}} onClick={()=>navigate(`/results/${r.sample_code||r.pipeline_id}`)}>
+                <TableCell><Typography variant="body2" fontWeight="medium" color="primary">#{r.pipeline_id}</Typography></TableCell>
                 <TableCell>
                   <Box>
                     <Typography variant="body2" fontWeight="medium">{r.sample_code||'Unknown'}</Typography>
@@ -286,9 +285,9 @@ function ResultsViewer() {
                 </TableCell>
                 <TableCell><Typography variant="body2" fontWeight="medium">{r.runtime_minutes?`${r.runtime_minutes} min`:r.status==='running'?'⏱ Running...':'N/A'}</Typography></TableCell>
                 <TableCell align="center" onClick={(e)=>e.stopPropagation()}>
-                  <Tooltip title="View Detailed Results"><IconButton size="small" color="primary" onClick={()=>navigate(`/results/${r.sample_code||r.id}`)}><Visibility/></IconButton></Tooltip>
-                  <Tooltip title="Monitor Pipeline"><IconButton size="small" color="info" onClick={()=>navigate(`/pipeline/${r.id}/monitor`)}><Assessment/></IconButton></Tooltip>
-                  {r.results_path && <Tooltip title="Download Results"><IconButton size="small" color="secondary" onClick={()=>window.open(`${API_BASE_URL}/api/pipeline/runs/${r.id}/download`,'_blank')}><Download/></IconButton></Tooltip>}
+                  <Tooltip title="View Detailed Results"><IconButton size="small" color="primary" onClick={()=>navigate(`/results/${r.sample_code||r.pipeline_id}`)}><Visibility/></IconButton></Tooltip>
+                  <Tooltip title="Monitor Pipeline"><IconButton size="small" color="info" onClick={()=>navigate(`/pipeline/${r.pipeline_id}/monitor`)}><Assessment/></IconButton></Tooltip>
+                  {r.results_path && <Tooltip title="Download Results"><IconButton size="small" color="secondary" onClick={()=>window.open(`${API_BASE_URL}/api/pipeline/runs/${r.pipeline_id}/download`,'_blank')}><Download/></IconButton></Tooltip>}
                 </TableCell>
               </TableRow>
             ))}

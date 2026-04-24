@@ -110,16 +110,19 @@ try:
             
             # Copy high and medium quality bins to output (or all if skip_filter)
             if skip_quality_filter or quality in ["HIGH", "MEDIUM"]:
-                bin_file = Path(bin_id + ".fa")
-                if not bin_file.exists():
-                    bin_file = Path(bin_id + ".fasta")
-                
-                if bin_file.exists():
+                bin_file = None
+                for ext in [".fa", ".fasta", ".fa.gz", ".fasta.gz"]:
+                    candidate = Path(bin_id + ext)
+                    if candidate.exists():
+                        bin_file = candidate
+                        break
+
+                if bin_file is not None:
                     dest = output_dir / bin_file.name
                     shutil.copy2(bin_file, dest)
                     print(f"✓ [{quality}] {bin_id}: {completeness:.1f}% complete, {contamination:.1f}% contamination")
                 else:
-                    print(f"WARNING: Bin file not found: {bin_id}")
+                    print(f"WARNING: Bin file not found: {bin_id} (tried .fa, .fasta, .fa.gz, .fasta.gz)")
 
 except Exception as e:
     print(f"ERROR processing CheckM file: {e}")

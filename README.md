@@ -338,8 +338,8 @@ upgrade/
 2. ~~**CORS = '*'** - Cross-origin attacks possible~~ ✅ **FIXED** - Environment-based CORS configuration
 3. ~~**Weak credentials** - Default password `upgrade123` in `.env`~~ ✅ **FIXED** - 256-bit passwords in secrets/
 4. **No SSL/TLS** - Unencrypted HTTP only
-5. **No rate limiting** - DDoS vulnerable
-6. **No file upload size limits** - Resource exhaustion possible
+5. ~~**No rate limiting** - DDoS vulnerable~~ ✅ **FIXED** - Redis-based rate limiter (5/min auth, 20/hour uploads)
+6. ~~**No file upload size limits** - Resource exhaustion possible~~ ✅ **FIXED** - 10GB max, 10 files max, extension validation
 
 ### Security Features Implemented
 
@@ -374,8 +374,8 @@ upgrade/
 - [x] Rotate all credentials with strong passwords
 - [x] Add email verification system
 - [ ] Enable SSL/TLS with Let's Encrypt
-- [ ] Add rate limiting to API endpoints
-- [ ] Add file upload size limits
+- [x] Add rate limiting to API endpoints
+- [x] Add file upload size limits
 - [ ] Implement automated backups
 - [ ] Add security scanning (OWASP ZAP, Bandit)
 - [ ] Remove hardcoded JWT_SECRET from docker-compose

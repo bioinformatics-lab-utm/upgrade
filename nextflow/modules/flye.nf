@@ -67,7 +67,7 @@ process FLYE {
         fi
     else
         echo "ERROR: Assembly failed - no assembly.fasta produced" | tee -a ${sample_id}.flye.log
-        touch ${sample_id}.fasta.gz
+        exit 1
     fi
     
     if [ -f flye_output/assembly_graph.gfa ]; then
@@ -78,7 +78,8 @@ process FLYE {
         fi
         mv flye_output/assembly_graph.gfa.gz ${sample_id}.gfa.gz
     else
-        touch ${sample_id}.gfa.gz
+        echo "WARNING: No assembly graph produced" | tee -a ${sample_id}.flye.log
+        echo "" | gzip > ${sample_id}.gfa.gz
     fi
     
     if [ -f flye_output/assembly_info.txt ]; then

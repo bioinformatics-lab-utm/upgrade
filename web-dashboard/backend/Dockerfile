@@ -36,6 +36,10 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Копирование приложения
 COPY . .
 
+# ✅ ДОБАВИТЬ СЮДА - копирование и права для entrypoint.sh
+COPY entrypoint.sh /app/entrypoint.sh
+RUN chmod +x /app/entrypoint.sh
+
 # Создание непривилегированного пользователя и добавление в docker группу
 RUN useradd -m -u 1000 sanic && \
     groupadd -f -g 999 docker && \
@@ -54,4 +58,5 @@ HEALTHCHECK --interval=30s --timeout=10s --retries=3 \
 
 EXPOSE 8000
 
-CMD ["python", "app.py"]
+ENTRYPOINT ["/app/entrypoint.sh"]
+CMD ["--single-process"]

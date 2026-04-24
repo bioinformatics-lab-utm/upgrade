@@ -2,7 +2,7 @@ process GTDBTK_CLASSIFY {
     tag "$sample_id"
     label 'process_high'
     
-    container 'ecogenomics/gtdbtk:2.3.2'
+    container 'ecogenomic/gtdbtk:latest'
 
     input:
     tuple val(sample_id), path(bins)
@@ -32,22 +32,12 @@ process GTDBTK_CLASSIFY {
     echo "Min AA percent: ${min_perc_aa}%" | tee -a ${sample_id}_gtdbtk.log
     echo "Started: \$(date)" | tee -a ${sample_id}_gtdbtk.log
     
-    # Check if GTDBTK database is available
+    # Check if GTDBTK database is available — fail if missing (required resource)
     if [ -z "\${GTDBTK_DATA_PATH}" ] || [ ! -d "\${GTDBTK_DATA_PATH}" ]; then
-        echo "ERROR: GTDBTK_DATA_PATH not set or directory not found" | tee -a ${sample_id}_gtdbtk.log
-        echo "Please download GTDB-Tk database and set GTDBTK_DATA_PATH" | tee -a ${sample_id}_gtdbtk.log
-        echo "Download: https://data.gtdb.ecogenomic.org/releases/latest/" | tee -a ${sample_id}_gtdbtk.log
-        
-        # Create empty output directory
-        mkdir -p ${sample_id}_gtdbtk
-        touch ${sample_id}_gtdbtk/.no_database
-        
-        cat <<-END_VERSIONS > versions.yml
-        "${task.process}":
-            gtdbtk: \$(gtdbtk --version 2>&1 | grep -o 'gtdbtk: version [0-9.]*' | sed 's/gtdbtk: version //' || echo "2.3.2")
-        END_VERSIONS
-        
-        exit 0
+        echo "ERROR: GTDBTK_DATA_PATH not set or directory not found" | tee -a ${sample_id}_gtdbtk.log >&2
+        echo "Please download GTDB-Tk database and set GTDBTK_DATA_PATH" | tee -a ${sample_id}_gtdbtk.log >&2
+        echo "Download: https://data.gtdb.ecogenomic.org/releases/latest/" | tee -a ${sample_id}_gtdbtk.log >&2
+        exit 1
     fi
     
     # Create bins directory and copy bins

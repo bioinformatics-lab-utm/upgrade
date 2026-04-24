@@ -6,7 +6,7 @@ import gzip
 import io
 import re
 from pathlib import Path
-from typing import Tuple, List, Dict
+from typing import Any, Tuple, List, Dict
 
 
 class FASTQValidationError(Exception):
@@ -181,7 +181,7 @@ def validate_fastq_file_size(file_size: int, min_size: int = 100, max_size: int 
     return True, ""
 
 
-def validate_fastq_files(files: List) -> Dict[str, any]:
+def validate_fastq_files(files: List) -> Dict[str, Any]:
     """
     Validate multiple FASTQ files
 
@@ -213,7 +213,13 @@ def validate_fastq_files(files: List) -> Dict[str, any]:
         }
 
     for idx, file_obj in enumerate(files, 1):
-        filename = file_obj.name
+        # Handle both file objects and strings
+        if isinstance(file_obj, str):
+            filename = file_obj
+            file_body = None  # Will need to read from disk
+        else:
+            filename = file_obj.name
+            file_body = file_obj.body
 
         # Validate filename
         valid_name, name_error = validate_fastq_filename(filename)
@@ -221,8 +227,18 @@ def validate_fastq_files(files: List) -> Dict[str, any]:
             errors.append(f"File {idx} ({filename}): {name_error}")
             continue
 
-        # Get file body (could be bytes or file-like object)
-        file_body = file_obj.body
+        # Get file body
+        if file_body is None:
+            # String path provided - read from disk for tests
+            try:
+                with open(filename, 'rb') as f:
+                    file_body = io.BytesIO(f.read())
+            except FileNotFoundError:
+                errors.append(f"File {idx} ({filename}): File not found")
+                continue
+            except Exception as e:
+                errors.append(f"File {idx} ({filename}): Error reading file: {str(e)}")
+                continue
 
         # Get file size
         if isinstance(file_body, bytes):

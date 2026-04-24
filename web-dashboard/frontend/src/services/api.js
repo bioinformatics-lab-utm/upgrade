@@ -10,6 +10,35 @@ const api = axios.create({
   },
 });
 
+// Add authorization token to all requests
+api.interceptors.request.use(
+  (config) => {
+    const token = localStorage.getItem('token');
+    if (token) {
+      config.headers.Authorization = `Bearer ${token}`;
+    }
+    return config;
+  },
+  (error) => {
+    return Promise.reject(error);
+  }
+);
+
+// Handle 401 responses — redirect to login
+api.interceptors.response.use(
+  (response) => response,
+  (error) => {
+    if (error.response && error.response.status === 401) {
+      localStorage.removeItem('token');
+      localStorage.removeItem('user');
+      if (window.location.pathname !== '/login' && window.location.pathname !== '/register') {
+        window.location.href = '/login';
+      }
+    }
+    return Promise.reject(error);
+  }
+);
+
 // Pipeline API endpoints
 export const pipelineAPI = {
   // Get all pipeline runs with optional filters
@@ -52,30 +81,6 @@ export const pipelineAPI = {
   downloadResults: async (id, path) => {
     const response = await api.get(`/api/pipeline/runs/${id}/results/${path}`, {
       responseType: 'blob'
-    });
-    return response.data;
-  },
-};
-
-// Weather API endpoints (legacy)
-export const weatherAPI = {
-  getCurrentWeather: async (lat, lon) => {
-    const response = await api.get('/api/weather/current', {
-      params: { lat, lon }
-    });
-    return response.data;
-  },
-
-  getForecast: async (lat, lon, days = 7) => {
-    const response = await api.get('/api/weather/forecast', {
-      params: { lat, lon, days }
-    });
-    return response.data;
-  },
-
-  getHistorical: async (lat, lon, startDate, endDate) => {
-    const response = await api.get('/api/weather/historical', {
-      params: { lat, lon, start_date: startDate, end_date: endDate }
     });
     return response.data;
   },

@@ -120,7 +120,7 @@ process MEDAKA_STATS {
     # Calculate stats for original
     echo "ORIGINAL ASSEMBLY:" >> ${sample_id}_medaka_stats.txt
     awk '/^>/ {if (seqlen) print seqlen; seqlen=0; next} {seqlen+=length(\$0)} END {if (seqlen) print seqlen}' original.fasta | \\
-    sort -rn > /tmp/lengths_orig.txt
+    sort -rn > lengths_orig.txt
     
     awk 'BEGIN {sum=0; count=0; min=999999999; max=0} 
          {sum+=\$1; count++; if(\$1<min) min=\$1; if(\$1>max) max=\$1} 
@@ -130,18 +130,18 @@ process MEDAKA_STATS {
             printf "  Mean length: %.0f bp\\n", sum/count;
             printf "  Min length: %d bp\\n", min;
             printf "  Max length: %d bp\\n", max;
-            print sum > "/tmp/total_orig.txt"
-         }' /tmp/lengths_orig.txt >> ${sample_id}_medaka_stats.txt
+            print sum > "total_orig.txt"
+         }' lengths_orig.txt >> ${sample_id}_medaka_stats.txt
     
     # Calculate N50
-    awk 'BEGIN {sum=0} {lengths[NR]=\$1; sum+=\$1} END {target=int(sum/2); cumsum=0; for(i=1; i<=NR; i++) {cumsum+=lengths[i]; if(cumsum>=target) {print "  N50: " lengths[i] " bp"; exit}}}' /tmp/lengths_orig.txt >> ${sample_id}_medaka_stats.txt
+    awk 'BEGIN {sum=0} {lengths[NR]=\$1; sum+=\$1} END {target=int(sum/2); cumsum=0; for(i=1; i<=NR; i++) {cumsum+=lengths[i]; if(cumsum>=target) {print "  N50: " lengths[i] " bp"; exit}}}' lengths_orig.txt >> ${sample_id}_medaka_stats.txt
     
     echo "" >> ${sample_id}_medaka_stats.txt
     
     # Calculate stats for polished
     echo "POLISHED ASSEMBLY:" >> ${sample_id}_medaka_stats.txt
     awk '/^>/ {if (seqlen) print seqlen; seqlen=0; next} {seqlen+=length(\$0)} END {if (seqlen) print seqlen}' polished.fasta | \\
-    sort -rn > /tmp/lengths_pol.txt
+    sort -rn > lengths_pol.txt
     
     awk 'BEGIN {sum=0; count=0; min=999999999; max=0} 
          {sum+=\$1; count++; if(\$1<min) min=\$1; if(\$1>max) max=\$1} 
@@ -151,11 +151,11 @@ process MEDAKA_STATS {
             printf "  Mean length: %.0f bp\\n", sum/count;
             printf "  Min length: %d bp\\n", min;
             printf "  Max length: %d bp\\n", max;
-            print sum > "/tmp/total_pol.txt"
-         }' /tmp/lengths_pol.txt >> ${sample_id}_medaka_stats.txt
+            print sum > "total_pol.txt"
+         }' lengths_pol.txt >> ${sample_id}_medaka_stats.txt
     
     # Calculate N50
-    awk 'BEGIN {sum=0} {lengths[NR]=\$1; sum+=\$1} END {target=int(sum/2); cumsum=0; for(i=1; i<=NR; i++) {cumsum+=lengths[i]; if(cumsum>=target) {print "  N50: " lengths[i] " bp"; exit}}}' /tmp/lengths_pol.txt >> ${sample_id}_medaka_stats.txt
+    awk 'BEGIN {sum=0} {lengths[NR]=\$1; sum+=\$1} END {target=int(sum/2); cumsum=0; for(i=1; i<=NR; i++) {cumsum+=lengths[i]; if(cumsum>=target) {print "  N50: " lengths[i] " bp"; exit}}}' lengths_pol.txt >> ${sample_id}_medaka_stats.txt
     
     echo "" >> ${sample_id}_medaka_stats.txt
     echo "Polishing completed: \$(date)" >> ${sample_id}_medaka_stats.txt
