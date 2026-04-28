@@ -767,6 +767,106 @@ body, html {
   border: 2px solid #cbd5e1;
 }
 
+/* Badge variants for danger/warning/success */
+.badge-danger {
+  background: linear-gradient(135deg, #fee2e2 0%, #fecaca 100%);
+  color: #991b1b;
+  border: 2px solid #fca5a5;
+}
+
+.badge-warning {
+  background: linear-gradient(135deg, #fef3c7 0%, #fde68a 100%);
+  color: #92400e;
+  border: 2px solid #fcd34d;
+}
+
+.badge-success {
+  background: linear-gradient(135deg, #dcfce7 0%, #bbf7d0 100%);
+  color: #166534;
+  border: 2px solid #86efac;
+}
+
+/* Stat card sub-detail */
+.stat-detail {
+  font-size: 11px;
+  color: #94a3b8;
+  margin-top: 4px;
+}
+
+/* AMR total card */
+.stat-card.amr-total {
+  border-top: 4px solid #3b82f6;
+}
+
+/* Risk stat cards */
+.stat-card.risk-high { border-top: 4px solid #dc2626; }
+.stat-card.risk-medium { border-top: 4px solid #f59e0b; }
+.stat-card.risk-low { border-top: 4px solid #10b981; }
+
+/* MAGs top grid: scatter + donut side by side */
+.mags-top-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 20px;
+  margin-bottom: 8px;
+}
+
+@media (max-width: 900px) {
+  .mags-top-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* Gauge cards for QC tab */
+.gauge-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 16px;
+}
+
+.gauge-card {
+  background: white;
+  border-radius: 14px;
+  padding: 20px 22px;
+  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.07);
+  border: 1px solid #f1f5f9;
+}
+
+.gauge-label {
+  font-size: 12px;
+  font-weight: 600;
+  color: #64748b;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin-bottom: 8px;
+}
+
+.gauge-value {
+  font-size: 26px;
+  font-weight: 700;
+  color: #1e293b;
+  margin-bottom: 10px;
+}
+
+.gauge-bar {
+  height: 8px;
+  background: #e5e7eb;
+  border-radius: 4px;
+  overflow: hidden;
+  margin-bottom: 6px;
+}
+
+.gauge-bar-fill {
+  height: 100%;
+  border-radius: 4px;
+  transition: width 0.6s ease;
+}
+
+.gauge-ref {
+  font-size: 11px;
+  color: #94a3b8;
+}
+
 /* Empty State */
 .empty-state {
   background: white;

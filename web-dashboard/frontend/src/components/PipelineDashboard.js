@@ -111,7 +111,7 @@ const PipelineDashboard = () => {
 
       const now = new Date();
       const yesterday = new Date(now - 24 * 60 * 60 * 1000);
-      const recentRuns = runsRes.data.runs.filter(r => {
+      const recentRuns = (runsRes.data.runs || []).filter(r => {
         if (activeIds.has(r.pipeline_id)) return false; // deduplicate with activeRuns
         if (r.completed_at) {
           return new Date(r.completed_at) > yesterday;

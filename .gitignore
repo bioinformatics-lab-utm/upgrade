@@ -429,7 +429,6 @@ backups/minio/*.json
 backups/cleanup_*/
 
 # Server-only configuration (private repo)
-.env.example
 generate-secrets.sh
 setup-database.sh
 diagnose.sh

@@ -62,7 +62,8 @@ def _fetch_trace_from_minio(sample_name: str, pipeline_id: int) -> List[Dict]:
         content = response.read().decode('utf-8')
         response.close()
         return _parse_trace_lines(content.splitlines(keepends=True))
-    except Exception:
+    except Exception as e:
+        logger.warning(f"Failed to fetch trace from MinIO for {sample_name}/{pipeline_id}: {e}")
         return []
 
 
@@ -268,8 +269,8 @@ async def get_pipeline_log(request, pipeline_id: int):
             resp = minio.client.get_object('genomic-silver', obj_key)
             minio_content = resp.read().decode('utf-8', errors='replace')
             resp.close()
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug(f"Execution log not in MinIO for {sample_name}/{pipeline_id}: {e}")
         if minio_content:
             all_lines = minio_content.splitlines(keepends=True)
             selected = all_lines[-lines:] if lines else all_lines
