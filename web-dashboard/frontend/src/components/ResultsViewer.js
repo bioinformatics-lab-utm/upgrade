@@ -62,21 +62,24 @@ function ResultsViewer() {
   const loadRuns = async () => {
     try {
       setLoading(true);
-      const params = new URLSearchParams();
-      if (dateFrom) params.append('date_from', dateFrom);
-      if (dateTo) params.append('date_to', dateTo);
-      if (runtimeRange[0] > 0) params.append('min_runtime', runtimeRange[0]);
-      if (runtimeRange[1] < 500) params.append('max_runtime', runtimeRange[1]);
-      if (qualityRange[0] > 0) params.append('min_quality', qualityRange[0]);
-      if (qualityRange[1] < 100) params.append('max_quality', qualityRange[1]);
-      if (magsRange[0] > 0) params.append('min_mags', magsRange[0]);
-      if (magsRange[1] < 50) params.append('max_mags', magsRange[1]);
-      if (amrRiskRange[0] > 0) params.append('min_amr_risk', amrRiskRange[0]);
-      if (amrRiskRange[1] < 10) params.append('max_amr_risk', amrRiskRange[1]);
-      
-      const url = `${API_BASE_URL}/api/pipeline/runs${params.toString() ? '?' + params.toString() : ''}`;
-      const response = await api.get(url, { timeout: 10000 });
-      setRuns(response.data.runs || []);
+      const baseParams = new URLSearchParams();
+      if (dateFrom) baseParams.append('date_from', dateFrom);
+      if (dateTo) baseParams.append('date_to', dateTo);
+      baseParams.append('limit', '2000');
+
+      // Fetch completed and failed separately — API orders by started_at DESC,
+      // so a single unfiltered call returns queued runs first and cuts off results.
+      const [completedResp, failedResp] = await Promise.all([
+        api.get(`${API_BASE_URL}/api/pipeline/runs?${baseParams}&status=completed`, { timeout: 30000 }),
+        api.get(`${API_BASE_URL}/api/pipeline/runs?${baseParams}&status=failed`, { timeout: 30000 }),
+      ]);
+
+      const allRuns = [
+        ...(completedResp.data.runs || []),
+        ...(failedResp.data.runs || []),
+      ].sort((a, b) => new Date(b.started_at || 0) - new Date(a.started_at || 0));
+
+      setRuns(allRuns);
       setError(null);
     } catch (err) {
       setError(`Failed to load pipeline runs: ${err.message}`);
