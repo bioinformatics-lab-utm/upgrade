@@ -193,7 +193,7 @@ services:
     container_name: ${COMPOSE_PROJECT_NAME}_web_backend
     user: "1000:999"
     ports:
-      - "127.0.0.1:8000:8000"
+      - "8000:8000"
     environment:
     - ENVIRONMENT=development
     - POSTGRES_HOST=${POSTGRES_HOST}
@@ -213,7 +213,7 @@ services:
     - AUTO_RELOAD=${SANIC_AUTO_RELOAD}
     - FRONTEND_URL=http://localhost:${GEO_DASHBOARD_FRONTEND_PORT}
     - JWT_SECRET=${JWT_SECRET}
-    - ALLOWED_ORIGINS=${ALLOWED_ORIGINS:-http://localhost:3000}
+    - ALLOWED_ORIGINS=${ALLOWED_ORIGINS:-http://localhost:3000,http://100.72.39.49:3000}
 
     volumes:
       - ./web-dashboard/backend:/app
@@ -255,7 +255,7 @@ services:
       dockerfile: Dockerfile
     container_name: ${COMPOSE_PROJECT_NAME}_web_frontend
     ports:
-      - "127.0.0.1:3000:80"
+      - "3000:80"
     environment:
       - REACT_APP_API_URL=
     networks:

@@ -1,0 +1,546 @@
+# =============================================================================
+# UPGRADE Platform - CI/CD Pipeline
+# =============================================================================
+# Trigger: Push to main/develop, Pull Requests, Releases
+# Stages: Test → Security → Build → Deploy
+# =============================================================================
+
+name: UPGRADE CI/CD Pipeline
+
+on:
+  push:
+    branches: [main, develop]
+    paths-ignore:
+      - '**.md'
+      - 'docs/**'
+  pull_request:
+    branches: [main]
+  release:
+    types: [created]
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Deployment environment'
+        required: true
+        default: 'staging'
+        type: choice
+        options:
+          - staging
+          - production
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}
+  NODE_VERSION: '18'
+  PYTHON_VERSION: '3.11'
+  NEXTFLOW_VERSION: '24.10.0'
+
+# Concurrency: Cancel in-progress runs for the same branch
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # ===========================================================================
+  # STAGE 1: TESTING
+  # ===========================================================================
+  
+  test-backend:
+    name: 🧪 Backend Tests
+    runs-on: ubuntu-latest
+    
+    services:
+      postgres:
+        image: postgis/postgis:15-3.3-alpine
+        env:
+          POSTGRES_PASSWORD: test_password_123
+          POSTGRES_USER: upgrade_test
+          POSTGRES_DB: upgrade_test_db
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 5432:5432
+      
+      redis:
+        image: redis:7-alpine
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 6379:6379
+    
+    steps:
+      - name: 📥 Checkout code
+        uses: actions/checkout@v4
+      
+      - name: 🐍 Setup Python ${{ env.PYTHON_VERSION }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: 'pip'
+          cache-dependency-path: web-dashboard/backend/requirements.txt
+      
+      - name: 📦 Install dependencies
+        working-directory: web-dashboard/backend
+        run: |
+          pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install pytest pytest-cov pytest-asyncio pytest-xdist black ruff bandit
+      
+      - name: 🎨 Check code formatting (Black)
+        working-directory: web-dashboard/backend
+        run: black --check --diff . || echo "::warning::Code formatting issues found"
+      
+      - name: 🔍 Lint with Ruff
+        working-directory: web-dashboard/backend
+        run: ruff check . --output-format=github || echo "::warning::Linting issues found"
+      
+      - name: 🗄️ Run database migrations
+        env:
+          DATABASE_URL: postgresql://upgrade_test:test_password_123@localhost:5432/upgrade_test_db
+        run: |
+          cd database/migrations
+          for f in *.sql; do
+            echo "Running migration: $f"
+            psql $DATABASE_URL -f "$f"
+          done
+      
+      - name: 🧪 Run tests with coverage
+        working-directory: web-dashboard/backend
+        env:
+          DATABASE_URL: postgresql://upgrade_test:test_password_123@localhost:5432/upgrade_test_db
+          REDIS_URL: redis://localhost:6379/0
+          JWT_SECRET: test-secret-key-for-ci-only
+          ENV: test
+        run: |
+          pytest tests/ \
+            --cov=. \
+            --cov-report=xml \
+            --cov-report=html \
+            --cov-report=term-missing \
+            --cov-fail-under=60 \
+            -v \
+            -n auto \
+            --tb=short
+      
+      - name: 📊 Upload coverage to Codecov
+        uses: codecov/codecov-action@v4
+        with:
+          file: ./web-dashboard/backend/coverage.xml
+          flags: backend
+          name: backend-coverage
+          token: ${{ secrets.CODECOV_TOKEN }}
+          fail_ci_if_error: false
+      
+      - name: 📁 Archive coverage report
+        uses: actions/upload-artifact@v4
+        with:
+          name: backend-coverage-report
+          path: web-dashboard/backend/htmlcov/
+          retention-days: 7
+  
+  test-frontend:
+    name: 🧪 Frontend Tests
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: 📥 Checkout code
+        uses: actions/checkout@v4
+      
+      - name: 📦 Setup Node.js ${{ env.NODE_VERSION }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+          cache-dependency-path: web-dashboard/frontend/package-lock.json
+      
+      - name: 📦 Install dependencies
+        working-directory: web-dashboard/frontend
+        run: npm ci
+      
+      - name: 🔍 Lint with ESLint
+        working-directory: web-dashboard/frontend
+        run: npm run lint || echo "::warning::Linting issues found"
+      
+      - name: 🧪 Run tests with coverage
+        working-directory: web-dashboard/frontend
+        run: npm test -- --coverage --watchAll=false --passWithNoTests
+        env:
+          CI: true
+      
+      - name: 🏗️ Build frontend
+        working-directory: web-dashboard/frontend
+        run: npm run build
+        env:
+          CI: true
+          REACT_APP_API_URL: /api
+      
+      - name: 📁 Archive build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: frontend-build
+          path: web-dashboard/frontend/build/
+          retention-days: 7
+  
+  test-nextflow:
+    name: 🧬 Nextflow Pipeline Validation
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: 📥 Checkout code
+        uses: actions/checkout@v4
+      
+      - name: ☕ Setup Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+      
+      - name: 🔧 Install Nextflow
+        run: |
+          curl -s https://get.nextflow.io | bash
+          sudo mv nextflow /usr/local/bin/
+          nextflow -version
+      
+      - name: ✅ Validate Nextflow syntax
+        working-directory: nextflow
+        run: |
+          nextflow config main.nf -show-profiles || true
+          nextflow inspect main.nf || echo "::warning::Nextflow validation issues"
+      
+      - name: 🧪 Run pipeline lint (nf-core)
+        run: |
+          pip install nf-core
+          cd nextflow
+          nf-core lint . --release || echo "::warning::nf-core lint issues"
+  
+  # ===========================================================================
+  # STAGE 2: SECURITY SCANNING
+  # ===========================================================================
+  
+  security-scan:
+    name: 🔒 Security Scanning
+    runs-on: ubuntu-latest
+    needs: [test-backend, test-frontend]
+    permissions:
+      security-events: write
+      contents: read
+    
+    steps:
+      - name: 📥 Checkout code
+        uses: actions/checkout@v4
+      
+      - name: 🔍 Run Trivy vulnerability scanner
+        uses: aquasecurity/trivy-action@master
+        with:
+          scan-type: 'fs'
+          scan-ref: '.'
+          format: 'sarif'
+          output: 'trivy-results.sarif'
+          severity: 'CRITICAL,HIGH'
+          ignore-unfixed: true
+      
+      - name: 📤 Upload Trivy results to GitHub Security
+        uses: github/codeql-action/upload-sarif@v3
+        if: always()
+        with:
+          sarif_file: 'trivy-results.sarif'
+      
+      - name: 🐍 Run Bandit (Python security linter)
+        working-directory: web-dashboard/backend
+        run: |
+          pip install bandit
+          bandit -r . -f json -o bandit-report.json --severity-level medium || true
+          bandit -r . -f txt --severity-level medium || echo "::warning::Security issues found"
+      
+      - name: 📦 Run npm audit
+        working-directory: web-dashboard/frontend
+        run: npm audit --audit-level=high || echo "::warning::npm audit issues found"
+      
+      - name: 🔑 Check for hardcoded secrets
+        uses: trufflesecurity/trufflehog@main
+        with:
+          path: ./
+          base: ${{ github.event.repository.default_branch }}
+          head: HEAD
+          extra_args: --only-verified
+      
+      - name: 📁 Upload security reports
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: security-reports
+          path: |
+            trivy-results.sarif
+            web-dashboard/backend/bandit-report.json
+          retention-days: 30
+  
+  # ===========================================================================
+  # STAGE 3: BUILD DOCKER IMAGES
+  # ===========================================================================
+  
+  build-images:
+    name: 🐳 Build Docker Images
+    runs-on: ubuntu-latest
+    needs: [test-backend, test-frontend, security-scan]
+    if: github.event_name == 'push' || github.event_name == 'release'
+    
+    permissions:
+      contents: read
+      packages: write
+    
+    strategy:
+      matrix:
+        include:
+          - context: ./web-dashboard/backend
+            image: backend
+            dockerfile: Dockerfile
+          - context: ./web-dashboard/frontend
+            image: frontend
+            dockerfile: Dockerfile
+    
+    steps:
+      - name: 📥 Checkout code
+        uses: actions/checkout@v4
+      
+      - name: 🔧 Set up QEMU
+        uses: docker/setup-qemu-action@v3
+      
+      - name: 🔧 Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+      
+      - name: 🔑 Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      
+      - name: 🏷️ Extract metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}/${{ matrix.image }}
+          tags: |
+            type=ref,event=branch
+            type=ref,event=pr
+            type=sha,prefix={{branch}}-
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=raw,value=latest,enable=${{ github.ref == 'refs/heads/main' }}
+      
+      - name: 🏗️ Build and push image
+        uses: docker/build-push-action@v5
+        with:
+          context: ${{ matrix.context }}
+          file: ${{ matrix.context }}/${{ matrix.dockerfile }}
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          platforms: linux/amd64
+          build-args: |
+            BUILD_DATE=${{ github.event.head_commit.timestamp }}
+            VCS_REF=${{ github.sha }}
+            VERSION=${{ github.ref_name }}
+  
+  # ===========================================================================
+  # STAGE 4: DEPLOYMENT
+  # ===========================================================================
+  
+  deploy-staging:
+    name: 🚀 Deploy to Staging
+    runs-on: ubuntu-latest
+    needs: [build-images]
+    if: github.ref == 'refs/heads/develop'
+    environment:
+      name: staging
+      url: https://staging.upgrade.utm.md
+    
+    steps:
+      - name: 📥 Checkout code
+        uses: actions/checkout@v4
+      
+      - name: 🔧 Setup SSH
+        uses: webfactory/ssh-agent@v0.9.0
+        with:
+          ssh-private-key: ${{ secrets.STAGING_SSH_KEY }}
+      
+      - name: 🚀 Deploy to staging server
+        env:
+          STAGING_HOST: ${{ secrets.STAGING_HOST }}
+          STAGING_USER: ${{ secrets.STAGING_USER }}
+          IMAGE_TAG: ${{ github.sha }}
+        run: |
+          ssh -o StrictHostKeyChecking=no ${STAGING_USER}@${STAGING_HOST} << 'ENDSSH'
+            cd /home/upgrade
+            
+            # Pull latest images
+            export IMAGE_TAG=${IMAGE_TAG}
+            docker-compose -f docker-compose.prod.yml pull
+            
+            # Deploy with zero downtime
+            docker-compose -f docker-compose.prod.yml up -d --no-deps web-backend
+            docker-compose -f docker-compose.prod.yml up -d --no-deps rq-worker
+            
+            # Run database migrations
+            docker-compose -f docker-compose.prod.yml exec -T web-backend python manage.py migrate
+            
+            # Health check
+            sleep 10
+            curl -f http://localhost:8000/api/health || exit 1
+            
+            echo "✅ Staging deployment complete"
+          ENDSSH
+      
+      - name: 🔔 Notify Slack
+        if: always()
+        uses: 8398a7/action-slack@v3
+        with:
+          status: ${{ job.status }}
+          text: 'Staging deployment ${{ job.status }}'
+          webhook_url: ${{ secrets.SLACK_WEBHOOK }}
+  
+  deploy-production:
+    name: 🚀 Deploy to Production
+    runs-on: ubuntu-latest
+    needs: [build-images]
+    if: github.event_name == 'release' || (github.event_name == 'workflow_dispatch' && github.event.inputs.environment == 'production')
+    environment:
+      name: production
+      url: https://upgrade.utm.md
+    
+    steps:
+      - name: 📥 Checkout code
+        uses: actions/checkout@v4
+      
+      - name: 🔧 Setup SSH
+        uses: webfactory/ssh-agent@v0.9.0
+        with:
+          ssh-private-key: ${{ secrets.PRODUCTION_SSH_KEY }}
+      
+      - name: 📸 Create database backup
+        env:
+          PRODUCTION_HOST: ${{ secrets.PRODUCTION_HOST }}
+          PRODUCTION_USER: ${{ secrets.PRODUCTION_USER }}
+        run: |
+          ssh -o StrictHostKeyChecking=no ${PRODUCTION_USER}@${PRODUCTION_HOST} << 'ENDSSH'
+            cd /home/upgrade
+            
+            # Create pre-deployment backup
+            BACKUP_NAME="pre_deploy_$(date +%Y%m%d_%H%M%S)"
+            docker-compose -f docker-compose.prod.yml exec -T postgres \
+              pg_dump -U upgrade upgrade_db | gzip > backups/postgres/${BACKUP_NAME}.sql.gz
+            
+            echo "✅ Backup created: ${BACKUP_NAME}"
+          ENDSSH
+      
+      - name: 🚀 Deploy to production server
+        env:
+          PRODUCTION_HOST: ${{ secrets.PRODUCTION_HOST }}
+          PRODUCTION_USER: ${{ secrets.PRODUCTION_USER }}
+          IMAGE_TAG: ${{ github.event.release.tag_name || github.sha }}
+        run: |
+          ssh -o StrictHostKeyChecking=no ${PRODUCTION_USER}@${PRODUCTION_HOST} << 'ENDSSH'
+            cd /home/upgrade
+            
+            # Pull latest images
+            export IMAGE_TAG=${IMAGE_TAG}
+            docker-compose -f docker-compose.prod.yml pull
+            
+            # Rolling deployment (zero downtime)
+            docker-compose -f docker-compose.prod.yml up -d --no-deps --scale web-backend=2 web-backend
+            sleep 30
+            
+            # Health check new containers
+            curl -f http://localhost:8000/api/health || exit 1
+            
+            # Scale down old containers
+            docker-compose -f docker-compose.prod.yml up -d --no-deps --scale web-backend=1 web-backend
+            
+            # Update worker
+            docker-compose -f docker-compose.prod.yml up -d --no-deps rq-worker
+            
+            # Run database migrations
+            docker-compose -f docker-compose.prod.yml exec -T web-backend python manage.py migrate
+            
+            # Final health check
+            sleep 10
+            curl -f https://upgrade.utm.md/api/health || exit 1
+            
+            echo "✅ Production deployment complete"
+          ENDSSH
+      
+      - name: 🔔 Notify team
+        if: always()
+        uses: 8398a7/action-slack@v3
+        with:
+          status: ${{ job.status }}
+          text: |
+            Production deployment ${{ job.status }}
+            Version: ${{ github.event.release.tag_name || github.sha }}
+            URL: https://upgrade.utm.md
+          webhook_url: ${{ secrets.SLACK_WEBHOOK }}
+      
+      - name: 📝 Create deployment record
+        if: success()
+        uses: actions/github-script@v7
+        with:
+          script: |
+            github.rest.repos.createDeployment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              ref: context.sha,
+              environment: 'production',
+              auto_merge: false,
+              required_contexts: []
+            });
+  
+  # ===========================================================================
+  # STAGE 5: POST-DEPLOYMENT CHECKS
+  # ===========================================================================
+  
+  smoke-tests:
+    name: 🔥 Smoke Tests
+    runs-on: ubuntu-latest
+    needs: [deploy-production]
+    if: github.event_name == 'release'
+    
+    steps:
+      - name: 📥 Checkout code
+        uses: actions/checkout@v4
+      
+      - name: 🔥 Run smoke tests
+        run: |
+          # Health check
+          curl -f https://upgrade.utm.md/api/health
+          
+          # Check SSL certificate
+          echo | openssl s_client -servername upgrade.utm.md -connect upgrade.utm.md:443 2>/dev/null | openssl x509 -noout -dates
+          
+          # Check response times
+          curl -w "@-" -o /dev/null -s https://upgrade.utm.md << 'EOF'
+          Response Times:
+            DNS Lookup: %{time_namelookup}s
+            Connect: %{time_connect}s
+            TLS Handshake: %{time_appconnect}s
+            First Byte: %{time_starttransfer}s
+            Total: %{time_total}s
+          EOF
+          
+          echo "✅ Smoke tests passed"
+      
+      - name: 📊 Run Lighthouse audit
+        uses: treosh/lighthouse-ci-action@v11
+        with:
+          urls: |
+            https://upgrade.utm.md
+            https://upgrade.utm.md/pipeline
+          uploadArtifacts: true
+          temporaryPublicStorage: true

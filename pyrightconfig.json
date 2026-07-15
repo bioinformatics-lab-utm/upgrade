@@ -1,0 +1,19 @@
+{
+  "include": [
+    "scripts",
+    "web-dashboard/backend"
+  ],
+  "exclude": [
+    "**/node_modules",
+    "**/__pycache__",
+    ".venv",
+    "venv"
+  ],
+  "extraPaths": [
+    "web-dashboard/backend"
+  ],
+  "pythonVersion": "3.11",
+  "typeCheckingMode": "basic",
+  "reportMissingImports": "warning",
+  "reportMissingTypeStubs": false
+}
