@@ -1,0 +1,25 @@
+@startuml assembly_module
+
+title Assembly Module (Stage 2)
+
+package "INPUT" {
+  rectangle "Filtered Reads\n40,795 reads | Q>10 | >1000bp" as input
+}
+
+package "DE NOVO ASSEMBLY" {
+  rectangle "Flye v2.9.1\n—\nAlgorithm: Repeat graph\nMode: --meta (metagenomic)\nGenome size: 5 Mbp | Threads: 60\n—\n1. Build overlap graph\n2. Resolve repeats\n3. Consensus polishing\n—\nError rate: ~1% | Time: 1-3h" as flye
+}
+
+package "POLISHING" {
+  rectangle "Medaka v1.7.2\n—\nTechnology: Neural network (CNN)\nModel: r941_min_hac_g507\n—\n1. Align reads to contigs\n2. Generate pileups\n3. Predict consensus\n4. Apply corrections\n—\nError rate: <0.1%" as medaka
+}
+
+package "OUTPUT" {
+  rectangle "Final Contigs\n234 contigs | 4.8 Mbp | N50: 45kb\n—\nAccuracy: >99.9%\nFormat: FASTA | Ready for binning" as output
+}
+
+input -down-> flye
+flye -down-> medaka : Raw assembly\n(~1% error)
+medaka -down-> output : Polished
+
+@enduml

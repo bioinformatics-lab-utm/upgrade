@@ -1,0 +1,31 @@
+@startuml annotation_module
+
+title Annotation Module (Stage 4)
+
+package "INPUT" {
+  rectangle "3 Genome Bins (MAGs)\n—\nHigh-quality genomes" as input
+}
+
+package "TAXONOMIC CLASSIFICATION" {
+  rectangle "Kraken2 + Bracken\n—\nK-mer based classification\nLCA algorithm\n—\nDatabase: RefSeq bacteria\n—\nResults:\nE. coli: 42.8%\nK. pneumoniae: 28.3%\nP. aeruginosa: 17.6%" as taxonomy
+}
+
+package "GENE PREDICTION" {
+  rectangle "Prokka v1.14.6\n—\nProdigal + annotation\n—\n1. Find ORFs\n2. Predict CDS\n3. Annotate (UniProt, RefSeq, Pfam)\n4. Identify rRNA, tRNA\n—\nOutput: GFF3, GenBank, proteins" as prokka
+}
+
+package "ARG DETECTION" {
+  rectangle "DeepARG + ABRicate\n—\nDatabases: CARD, ResFinder, NCBI\nMethod: BLAST + ML model\n—\nThresholds: >80% ID, >60% cov\n—\nFound 12 ARGs:\nblaCTX-M-15 (ESBL, 99.8%)\nmecA (MRSA, 97.2%)\nvanA (VRE, 99.1%)" as arg
+}
+
+package "OUTPUT" {
+  rectangle "Complete Annotation\n—\nSpecies identification\nGene functions\nResistance genes\nVirulence factors" as output
+}
+
+input -down-> taxonomy
+input -down-> prokka
+taxonomy -down-> output : Species ID
+prokka -down-> arg : Gene sequences
+arg -down-> output : ARG report
+
+@enduml

@@ -1,0 +1,54 @@
+@startuml pipeline
+skinparam backgroundColor #0d1b2a
+skinparam defaultFontColor #e8f4f8
+skinparam defaultFontSize 16
+skinparam defaultFontName "Arial"
+skinparam ArrowColor #00c9a7
+skinparam ArrowThickness 2
+
+skinparam rectangle {
+  BackgroundColor #162032
+  BorderColor #00c9a7
+  BorderThickness 2
+  FontColor #e8f4f8
+  RoundCorner 10
+}
+
+skinparam note {
+  BackgroundColor #1e3a5f
+  BorderColor #7ecfff
+  FontColor #7ecfff
+  FontSize 13
+}
+
+skinparam database {
+  BackgroundColor #1e3a5f
+  BorderColor #00c9a7
+  FontColor #e8f4f8
+}
+
+rectangle "📥  FASTQ brut (ONT PromethION)" as INPUT #1e3a5f
+rectangle "1️⃣  Control de calitate\n<color:#7ecfff>NanoPlot · Filtlong</color>" as QC
+rectangle "2️⃣  Asamblare de novo\n<color:#7ecfff>Flye --meta · Medaka</color>" as ASM
+rectangle "3️⃣  Mapare citiri\n<color:#7ecfff>minimap2 -ax map-ont · Samtools</color>" as MAP
+rectangle "4️⃣  Binning + Evaluare\n<color:#7ecfff>MetaBAT2 · CONCOCT · CheckM · dRep</color>" as BIN
+rectangle "5️⃣  Clasificare taxonomică\n<color:#7ecfff>Kraken2 · Bracken · GTDB-Tk</color>" as TAX
+rectangle "6️⃣  Adnotare funcțională\n<color:#7ecfff>Prokka</color>" as ANN
+rectangle "7️⃣  Detecție ARG\n<color:#7ecfff>DeepARG · ABRicate</color>" as ARG
+rectangle "📊  Raport epidemiologic\n<color:#00c9a7>Dashboard Web · Export JSON/HTML</color>" as OUT #162032
+
+INPUT --> QC
+QC --> ASM
+ASM --> MAP
+MAP --> BIN
+BIN --> TAX
+TAX --> ANN
+ANN --> ARG
+ARG --> OUT
+
+note right of QC : min_length=200\nkeep_percent=90
+note right of ASM : genome_size=5m\niterations=1
+note right of BIN : ANI≥95% dereplicare\nMIMAG: HQ >90% completeness
+note right of ARG : CARD + ResFinder\n+ ARG-ANNOT + VFDB
+
+@enduml

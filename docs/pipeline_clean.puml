@@ -1,0 +1,47 @@
+@startuml pipeline_clean
+skinparam backgroundColor white
+skinparam defaultFontColor #1a2a3f
+skinparam defaultFontSize 15
+skinparam defaultFontName "Arial"
+skinparam ArrowColor #1565C0
+skinparam ArrowThickness 2
+
+skinparam rectangle {
+  BackgroundColor #E3F2FD
+  BorderColor #1565C0
+  BorderThickness 2
+  FontColor #1a2a3f
+  RoundCorner 10
+}
+
+skinparam note {
+  BackgroundColor #FFF8E1
+  BorderColor #F57F17
+  FontColor #5D4037
+  FontSize 12
+}
+
+rectangle "📥  FASTQ brut (ONT PromethION R10.4.1)" as INPUT #BBDEFB
+rectangle "①  Control de calitate\nNanoPlot  ·  Filtlong" as QC #E8F5E9
+rectangle "②  Asamblare de novo\nFlye --meta  ·  Medaka" as ASM #E8F5E9
+rectangle "③  Mapare citiri\nminimap2 -ax map-ont  ·  Samtools" as MAP #E8F5E9
+rectangle "④  Binning + Calitate MAG\nMetaBAT2  ·  CONCOCT  ·  CheckM  ·  dRep" as BIN #E8F5E9
+rectangle "⑤  Clasificare taxonomică\nKraken2  ·  Bracken  ·  GTDB-Tk" as TAX #E8F5E9
+rectangle "⑥  Adnotare funcțională\nProkka" as ANN #E8F5E9
+rectangle "⑦  Detecție ARG\nDeepARG  ·  ABRicate (6 DB)" as ARG #E8F5E9
+rectangle "📊  Raport epidemiologic  |  Dashboard Web" as OUT #BBDEFB
+
+INPUT -down-> QC
+QC -down-> ASM
+ASM -down-> MAP
+MAP -down-> BIN
+BIN -down-> TAX
+TAX -down-> ANN
+ANN -down-> ARG
+ARG -down-> OUT
+
+note right of QC : min_length=200, keep_percent=90
+note right of BIN : ANI≥95% dereplicare\nMIMAG HQ: >90% completeness
+note right of ARG : CARD + ResFinder\n+ ARG-ANNOT + VFDB
+
+@enduml

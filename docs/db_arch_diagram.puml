@@ -1,0 +1,68 @@
+@startuml db_arch
+skinparam backgroundColor #0d1b2a
+skinparam defaultFontColor #e8f4f8
+skinparam defaultFontSize 14
+skinparam defaultFontName "Arial"
+skinparam ArrowColor #00c9a7
+skinparam ArrowThickness 2
+skinparam linetype ortho
+
+skinparam rectangle {
+  BackgroundColor #162032
+  BorderColor #1e3a5f
+  FontColor #e8f4f8
+  RoundCorner 8
+}
+
+skinparam database {
+  BackgroundColor #1e3a5f
+  BorderColor #00c9a7
+  FontColor #e8f4f8
+}
+
+skinparam package {
+  BackgroundColor #0d1b2a
+  BorderColor #00c9a7
+  FontColor #00c9a7
+  FontStyle bold
+}
+
+package "Browser / React 18" as FRONT {
+  rectangle "Dashboard\nSamples · Pipeline Monitor\nResults · AMR · MAG · Taxa" as UI
+}
+
+package "Sanic API Backend" as API {
+  rectangle "/api/samples/\n/api/pipeline_monitoring/\n/api/results/\n/api/auth/" as ROUTES
+}
+
+package "PostgreSQL 15 + PostGIS 3.3" as PG {
+  database "samples\nsequencing_runs\nquality_metrics" as TB1
+  database "pipeline_jobs\nassembled_genomes\ngenome_bins" as TB2
+  database "taxonomic_classifications\narg_detections\namr_summary" as TB3
+}
+
+package "MinIO Lakehouse" as MINIO {
+  rectangle "🥉 genomic-raw\n(FASTQ brut)" as BR
+  rectangle "🥈 genomic-silver\n(MAG · ARG · Taxa)" as SL
+  rectangle "🥇 genomic-gold\n(Rapoarte finale)" as GO
+}
+
+package "Queue System" as QS {
+  database "Redis v7.2\n(job queue)" as REDIS
+  rectangle "RQ Worker\n(Nextflow executor)" as WORKER
+}
+
+UI --> ROUTES : HTTP polling 5s
+ROUTES --> TB1
+ROUTES --> TB2
+ROUTES --> TB3
+ROUTES --> SL : read results
+ROUTES --> REDIS : submit job
+REDIS --> WORKER
+WORKER --> BR : write FASTQ
+WORKER --> SL : write results
+WORKER --> TB2 : update status
+BR --> SL : pipeline processing
+SL --> GO : aggregation
+
+@enduml

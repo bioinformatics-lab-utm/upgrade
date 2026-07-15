@@ -1,0 +1,331 @@
+@startuml er_diagram
+skinparam linetype ortho
+skinparam ranksep 55
+skinparam nodesep 35
+skinparam defaultFontSize 11
+skinparam defaultFontName "DejaVu Sans"
+
+skinparam entity {
+    BackgroundColor #FAFAFA
+    BorderColor #555555
+    FontSize 11
+    AttributeFontSize 10
+}
+
+hide circle
+hide empty methods
+
+' ══════════════ AUTH ══════════════
+
+entity "**users**" as users #E8F4FD {
+    * user_id : INT <<PK>>
+    --
+    username : VARCHAR
+    email : VARCHAR
+    user_type : VARCHAR
+    password_hash : VARCHAR
+    first_name / last_name : VARCHAR
+    is_active : BOOL
+    last_login : TIMESTAMP
+    created_at : TIMESTAMP
+}
+
+entity "**user_sessions**" as user_sessions #E8F4FD {
+    * session_id : INT <<PK>>
+    --
+    # user_id : INT <<FK>>
+    session_token : VARCHAR
+    ip_address : INET
+    expires_at : TIMESTAMP
+    is_active : BOOL
+}
+
+entity "**user_permissions**" as user_permissions #E8F4FD {
+    * permission_id : INT <<PK>>
+    --
+    # user_id : INT <<FK>>
+    # granted_by : INT <<FK>>
+    resource_type : VARCHAR
+    permission_level : VARCHAR
+    resource_id : INT
+    is_active : BOOL
+}
+
+' ══════════════ GEOGRAPHY ══════════════
+
+entity "**locations**" as locations #EDF7ED {
+    * location_id : INT <<PK>>
+    --
+    location_name : VARCHAR
+    country : VARCHAR
+    city : VARCHAR
+    latitude : NUMERIC
+    longitude : NUMERIC
+    indoor_outdoor : VARCHAR
+    campus_area : VARCHAR
+    metadata : JSONB
+}
+
+entity "**weather_measurements**" as weather #EDF7ED {
+    * weather_id : INT <<PK>>
+    --
+    # location_id : INT <<FK>>
+    measurement_datetime : TIMESTAMP
+    temperature : NUMERIC
+    humidity : NUMERIC
+    rainfall : NUMERIC
+    windspeed : NUMERIC
+    weather_code : INT
+}
+
+' ══════════════ SAMPLES ══════════════
+
+entity "**samples**" as samples #FFF8E6 {
+    * sample_id : INT <<PK>>
+    --
+    # location_id : INT <<FK>>
+    sample_code : VARCHAR
+    collection_date : DATE
+    sample_type : VARCHAR
+    sequencing_platform : VARCHAR
+    sequencing_kit : VARCHAR
+    flowcell_type : VARCHAR
+    sequencing_depth : NUMERIC
+    status : ENUM
+    batch_id : VARCHAR
+    metadata : JSONB
+}
+
+' ══════════════ NEXTFLOW ══════════════
+
+entity "**nextflow_workflows**" as nf_wf #F3EDFC {
+    * workflow_id : INT <<PK>>
+    --
+    workflow_name : VARCHAR
+    workflow_version : VARCHAR
+    nextflow_version : VARCHAR
+    workflow_script_path : VARCHAR
+    is_active : BOOL
+    default_cpu : INT
+    default_memory_gb : INT
+}
+
+entity "**nextflow_executions**" as nf_exec #F3EDFC {
+    * execution_id : INT <<PK>>
+    --
+    # workflow_id : INT <<FK>>
+    execution_name : VARCHAR
+    nextflow_run_name : VARCHAR
+    status : VARCHAR
+    start_time : TIMESTAMP
+    complete_time : TIMESTAMP
+    duration : INTERVAL
+    total_cpu_hours : NUMERIC
+    peak_memory_gb : NUMERIC
+    params : JSONB
+}
+
+' ══════════════ PIPELINE CORE ══════════════
+
+entity "**pipeline_runs**" as pr #FDE8E8 {
+    * pipeline_id : INT <<PK>>
+    --
+    # sample_id : INT <<FK>>
+    # nextflow_execution_id : INT <<FK>>
+    pipeline_name : VARCHAR
+    pipeline_version : VARCHAR
+    status : VARCHAR
+    job_id : VARCHAR
+    cpu_cores : INT
+    memory_gb : INT
+    runtime_minutes : INT
+    bronze_path : VARCHAR
+    silver_path : VARCHAR
+    gold_path : VARCHAR
+    quality_score : NUMERIC
+    amr_risk_score : NUMERIC
+    summary_json : JSONB
+    queued_at : TIMESTAMP
+    started_at : TIMESTAMP
+    completed_at : TIMESTAMP
+}
+
+entity "**pipeline_progress_events**" as ppe #FDE8E8 {
+    * event_id : INT <<PK>>
+    --
+    # pipeline_id : INT <<FK>>
+    stage : VARCHAR
+    step : VARCHAR
+    status : VARCHAR
+    progress_percent : INT
+    details : JSONB
+    created_at : TIMESTAMP
+}
+
+entity "**pipeline_artifacts**" as pa #FDE8E8 {
+    * artifact_id : INT <<PK>>
+    --
+    # pipeline_id : INT <<FK>>
+    # minio_object_id : INT <<FK>>
+    artifact_type : VARCHAR
+    artifact_name : VARCHAR
+    quality_tier : VARCHAR
+    quality_score : NUMERIC
+    process_name : VARCHAR
+    metadata : JSONB
+}
+
+' ══════════════ LAKEHOUSE ══════════════
+
+entity "**minio_buckets**" as mb #E8F0FE {
+    * bucket_id : INT <<PK>>
+    --
+    bucket_name : VARCHAR
+    layer_type : VARCHAR
+    retention_policy : VARCHAR
+    versioning_enabled : BOOL
+    encryption_enabled : BOOL
+    object_count : BIGINT
+    total_size_bytes : BIGINT
+}
+
+entity "**minio_objects**" as mo #E8F0FE {
+    * object_id : INT <<PK>>
+    --
+    # bucket_id : INT <<FK>>
+    # sample_id : INT <<FK>>
+    # pipeline_id : INT <<FK>>
+    # execution_id : INT <<FK>>
+    object_key : VARCHAR
+    object_name : VARCHAR
+    object_size_bytes : BIGINT
+    content_type : VARCHAR
+    layer_stage : VARCHAR
+    process_name : VARCHAR
+    metadata : JSONB
+}
+
+entity "**data_lineage**" as dl #E8F0FE {
+    * lineage_id : INT <<PK>>
+    --
+    # source_object_id : INT <<FK>>
+    # target_object_id : INT <<FK>>
+    transformation_type : VARCHAR
+    transformation_process : VARCHAR
+    processing_duration : INTERVAL
+    quality_metrics : JSONB
+}
+
+' ══════════════ ANALYSIS RESULTS ══════════════
+
+entity "**assemblies**" as asm #F0F7E6 {
+    * assembly_id : INT <<PK>>
+    --
+    # sample_id : INT <<FK>>
+    # pipeline_run_id : INT <<FK>>
+    assembler : VARCHAR
+    total_contigs : INT
+    total_length : BIGINT
+    n50_contig : INT
+    gc_content : NUMERIC
+    completeness : NUMERIC
+    contamination : NUMERIC
+    quality_grade : VARCHAR
+}
+
+entity "**quality_control_results**" as qcr #F0F7E6 {
+    * qc_id : INT <<PK>>
+    --
+    # sample_id : INT <<FK>>
+    total_reads : BIGINT
+    passed_reads : BIGINT
+    pass_rate : NUMERIC
+    mean_quality_score : NUMERIC
+    n50_read_length : INT
+    contamination_rate : NUMERIC
+    is_passed : BOOL
+    qc_tool : VARCHAR
+}
+
+entity "**detected_organisms**" as do_ #F0F7E6 {
+    * detection_id : INT <<PK>>
+    --
+    # sample_id : INT <<FK>>
+    # pipeline_run_id : INT <<FK>>
+    organism_name : VARCHAR
+    taxonomy_rank : VARCHAR
+    classification_tool : VARCHAR
+    read_count : INT
+    abundance : NUMERIC
+    confidence_score : NUMERIC
+}
+
+entity "**resistance_genes**" as rg #F0F7E6 {
+    * rg_id : INT <<PK>>
+    --
+    # sample_id : INT <<FK>>
+    # pipeline_run_id : INT <<FK>>
+    gene_name : VARCHAR
+    gene_symbol : VARCHAR
+    detection_tool : VARCHAR
+    coverage : NUMERIC
+    identity : NUMERIC
+    resistance_mechanism : VARCHAR
+    predicted_resistance : ARRAY
+    quality_score : NUMERIC
+}
+
+entity "**virulence_factors**" as vf #F0F7E6 {
+    * vf_id : INT <<PK>>
+    --
+    # sample_id : INT <<FK>>
+    # pipeline_run_id : INT <<FK>>
+    gene_name : VARCHAR
+    vf_category : VARCHAR
+    detection_tool : VARCHAR
+    coverage : NUMERIC
+    identity : NUMERIC
+    clinical_significance : VARCHAR
+}
+
+' ══════════════ RELATIONSHIPS ══════════════
+
+' Auth
+users              ||--o{ user_sessions        : "has sessions"
+users              ||--o{ user_permissions     : "owns"
+users              ||--o{ user_permissions     : "grants"
+
+' Geography
+locations          ||--o{ weather             : "measured at"
+locations          ||--o{ samples             : "collected at"
+
+' Nextflow
+nf_wf              ||--o{ nf_exec            : "executed as"
+nf_exec            ||--o{ pr                 : "tracked by"
+nf_exec            ||--o{ mo                 : "produces files"
+
+' Pipeline core
+samples            ||--o{ pr                 : "processed in"
+pr                 ||--o{ ppe               : "emits events"
+pr                 ||--o{ pa                : "produces artifacts"
+
+' Lakehouse
+mb                 ||--o{ mo                : "contains"
+samples            ||--o{ mo                : "stored as"
+pr                 ||--o{ mo                : "writes to"
+mo                 ||--o{ pa               : "referenced by"
+mo                 ||--o{ dl               : "source"
+mo                 ||--o{ dl               : "target"
+
+' Analysis
+samples            ||--o{ asm              : "has assemblies"
+pr                 ||--o{ asm              : "generates"
+samples            ||--o{ qcr             : "has QC"
+samples            ||--o{ do_             : "has organisms"
+pr                 ||--o{ do_             : "detects"
+samples            ||--o{ rg              : "has AMR genes"
+pr                 ||--o{ rg              : "finds"
+samples            ||--o{ vf              : "has VFs"
+pr                 ||--o{ vf              : "identifies"
+
+@enduml

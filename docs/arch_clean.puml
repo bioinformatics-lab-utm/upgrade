@@ -1,0 +1,69 @@
+@startuml arch_clean
+skinparam backgroundColor white
+skinparam defaultFontColor #1a2a3f
+skinparam defaultFontSize 14
+skinparam defaultFontName "Arial"
+skinparam ArrowColor #1565C0
+skinparam ArrowThickness 2
+skinparam linetype ortho
+
+skinparam rectangle {
+  BackgroundColor #E3F2FD
+  BorderColor #1565C0
+  BorderThickness 1
+  FontColor #1a2a3f
+  RoundCorner 6
+}
+
+skinparam database {
+  BackgroundColor #E8F5E9
+  BorderColor #2E7D32
+  FontColor #1a2a3f
+}
+
+skinparam package {
+  BackgroundColor white
+  BorderColor #1565C0
+  FontColor #1565C0
+  FontStyle bold
+}
+
+package "Browser  |  React 18" as FRONT #FAFAFA {
+  rectangle "Dashboard · Samples\nPipeline Monitor\nResultate · AMR · MAG · Taxa" as UI
+}
+
+package "Sanic API  +  asyncpg" as API #FAFAFA {
+  rectangle "/api/samples/\n/api/pipeline_monitoring/\n/api/results/   /api/auth/" as ROUTES
+}
+
+package "PostgreSQL 15  +  PostGIS 3.3" as PG #FAFAFA {
+  database "samples  ·  sequencing_runs\nquality_metrics" as TB1
+  database "pipeline_jobs\nassembled_genomes  ·  genome_bins" as TB2
+  database "taxonomic_classifications\narg_detections  ·  amr_summary" as TB3
+}
+
+package "MinIO Lakehouse" as MINIO #FAFAFA {
+  rectangle "🥉 genomic-raw\n(FASTQ + SHA256)" as BR
+  rectangle "🥈 genomic-silver\n(MAG · ARG · Taxa)" as SL
+  rectangle "🥇 genomic-gold\n(Rapoarte finale)" as GO
+}
+
+package "Queue  |  Nextflow" as QS #FAFAFA {
+  database "Redis v7.2\n(job queue)" as REDIS
+  rectangle "RQ Worker\n↓  Nextflow DSL2\n(18 module Docker)" as WORKER
+}
+
+UI -right-> ROUTES : HTTP 5s
+ROUTES --> TB1
+ROUTES --> TB2
+ROUTES --> TB3
+ROUTES -down-> SL : read results
+ROUTES -right-> REDIS : submit job
+REDIS -down-> WORKER
+WORKER -up-> BR : store FASTQ
+WORKER -up-> SL : write results
+WORKER --> TB2 : update status
+BR -right-> SL
+SL -right-> GO
+
+@enduml

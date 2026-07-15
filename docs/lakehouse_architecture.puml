@@ -1,0 +1,186 @@
+@startuml lakehouse_medallion
+
+' ════════════════════════════════════════════
+' THEME
+' ════════════════════════════════════════════
+skinparam backgroundColor #0d1117
+skinparam defaultFontColor #c9d1d9
+skinparam defaultFontSize 11
+skinparam defaultFontName "Segoe UI"
+skinparam roundCorner 15
+skinparam shadowing false
+skinparam packageBorderColor #30363d
+skinparam packageBackgroundColor #161b22
+skinparam rectangleBorderColor #30363d
+skinparam rectangleBackgroundColor #1a1e24
+skinparam databaseBorderColor #30363d
+skinparam databaseBackgroundColor #1a1e24
+skinparam storageBorderColor #30363d
+skinparam storageBackgroundColor #1a1e24
+skinparam arrowColor #58a6ff
+skinparam arrowFontColor #8b949e
+skinparam arrowFontSize 10
+skinparam noteBorderColor #30363d
+skinparam noteBackgroundColor #161b22
+skinparam noteFontColor #c9d1d9
+
+title <b><color:#58a6ff><size:16>Lakehouse Medallion Architecture</size></color></b>\n<color:#8b949e>UPGRADE Platform — Data Lifecycle in MinIO S3</color>
+
+' ════════════════════════════════════════════
+' DATA SOURCES
+' ════════════════════════════════════════════
+package "Data Sources" as sources #0d1117 {
+  rectangle "<b><color:#61dafb>User Upload</color></b>\nFASTQ via presigned URL\n10 GB max · gzip auto" as user_upload #0a1929
+  rectangle "<b><color:#e07020>Kafka Consumer</color></b>\nWeather JSON\nOpen-Meteo → 30 cities" as kafka_weather #2d1500
+  rectangle "<b><color:#61dafb>SRA Batch</color></b>\nNCBI downloads\nPublic metagenomes" as sra_fetch #0a1929
+}
+
+' ════════════════════════════════════════════
+' BRONZE LAYER
+' ════════════════════════════════════════════
+package "<color:#cd7f32><b>BRONZE</b></color> — Raw Immutable Data" as bronze_pkg #2a1508 {
+  storage "<b><color:#cd7f32>genomic-bronze</color></b>\n\n<b>Structure:</b>\n{sample_code}/raw/{file}.fastq.gz\n\n<b>Contents:</b>\n  Raw FASTQ (auto-compressed pigz)\n  Weather JSON archives\n  SRA downloads\n\n<b>Properties:</b>\n  Immutable (append-only)\n  Dedup by hash check\n  Versioning enabled" as bronze_bucket #3d2510
+
+  rectangle "<b>upload_to_bronze()</b>\n---\nauto-compress pigz (multi-thread)\nhash check for dedup\ntrack in minio_objects table\nlink sample_id" as bronze_func #4a3015
+}
+
+' ════════════════════════════════════════════
+' NEXTFLOW PROCESSING
+' ════════════════════════════════════════════
+package "<color:#4ade80><b>PROCESSING</b></color> — Nextflow Pipeline" as processing #071a07 {
+  rectangle "<b>01  QC</b>\nNanoPlot" as p_qc #0a2e0a
+  rectangle "<b>02  Filter</b>\nFiltlong" as p_filter #0a2e0a
+  rectangle "<b>03  Assembly</b>\nFlye + Medaka" as p_asm #0a2e0a
+  rectangle "<b>04  Binning</b>\nMetaBAT2\nCONCOCT" as p_bin #0a2e0a
+  rectangle "<b>05  Quality</b>\nCheckM\ndRep · GTDB-Tk" as p_qual #0a2e0a
+  rectangle "<b>06  Taxonomy</b>\nKraken2\nBracken" as p_tax #0a2e0a
+  rectangle "<b>07  AMR</b>\nABRicate\nDeepARG" as p_amr #0a2e0a
+  rectangle "<b>08  Compare</b>\nNUCmer" as p_comp #0a2e0a
+}
+
+p_qc -right-> p_filter
+p_filter -right-> p_asm
+p_asm -right-> p_bin
+p_bin -right-> p_qual
+p_qual -right-> p_tax
+p_tax -right-> p_amr
+p_amr -right-> p_comp
+
+' ════════════════════════════════════════════
+' SILVER LAYER
+' ════════════════════════════════════════════
+package "<color:#c0c0c0><b>SILVER</b></color> — Processed Results per Tool" as silver_pkg #1a1f2e {
+  storage "<b><color:#c0c0c0>genomic-silver</color></b>\n\n<b>Structure:</b>\n{sample_code}/{run_id}/{layer_stage}/{file}\n\n<b>Directories (SILVER_LAYER_MAPPING):</b>\n  00_summary/\n  01_QC/nanoplot/\n  02_filtered/\n  03_assembly/\n  04_binning/metabat2/ | concoct/\n  05_quality/metabat2/ | concoct/\n  05_drep/ · 05_gtdbtk/ · 05_filtered/\n  06_kraken2/\n  07_amr/abricate/ | deeparg/\n  07_bracken/\n  08_comparative/nucmer/\n\n<b>Properties:</b>\n  Partitioned by Nextflow process\n  Linked to pipeline_id\n  process_name + tool_version tracked" as silver_bucket #2d3040
+
+  rectangle "<b>upload_to_silver()</b>\n---\nSILVER_LAYER_MAPPING routing\nbatch metadata UPDATE\nbatch lineage INSERT\nBronze → Silver tracking" as silver_func #3a3f55
+}
+
+' ════════════════════════════════════════════
+' GOLD CURATION
+' ════════════════════════════════════════════
+package "<color:#ffd700><b>GOLD</b></color> — Curated Quality Artifacts" as gold_pkg #2e2508 {
+  storage "<b><color:#ffd700>genomic-gold</color></b>\n\n<b>Structure:</b>\n{sample_code}/assembly/{file}.fasta\n{sample_code}/bins/high/{bin}.fa\n{sample_code}/bins/medium/{bin}.fa\n{sample_code}/reports/{report}.html\n\n<b>Quality Gates:</b>\n  Assembly: highest N50\n  Bins HIGH: completeness≥90% contamination<5%\n  Bins MEDIUM: completeness≥50% contamination<10%\n  Reports: NanoPlot HTML, pipeline summary\n\n<b>Properties:</b>\n  Quality-scored (CheckM)\n  pipeline_artifacts table\n  Silver → Gold lineage" as gold_bucket #3d3010
+
+  rectangle "<b>curate_gold_layer()</b>\n---\nparse CheckM summary TSV\nscore bins: high/medium/low\nselect best assembly by N50\ncreate pipeline_artifacts\ntrack Silver → Gold lineage" as gold_func #4a4015
+}
+
+' ════════════════════════════════════════════
+' METADATA STORE
+' ════════════════════════════════════════════
+package "PostgreSQL — Metadata & Lineage" as pg_pkg #0d1117 {
+  database "<b><color:#336791>minio_objects</color></b>\nobject_id · bucket_id\nobject_key · file_size\npipeline_id · process_name\nlayer_stage · tool_version" as tbl_objects #0a1629
+
+  database "<b><color:#336791>data_lineage</color></b>\nsource_object_id → target_object_id\ntransformation_type\ntransformation_process\ntransformation_metadata" as tbl_lineage #0a1629
+
+  database "<b><color:#336791>pipeline_artifacts</color></b>\npipeline_id · artifact_type\nminio_object_id\nquality_tier · quality_score\nmetadata (N50, completeness)" as tbl_artifacts #0a1629
+
+  database "<b><color:#336791>minio_buckets</color></b>\nbucket_id · bucket_name\nlayer_type (bronze|silver|gold)\nversioning_enabled" as tbl_buckets #0a1629
+}
+
+' ════════════════════════════════════════════
+' API OUTPUT
+' ════════════════════════════════════════════
+package "Output" as output_pkg #0d1117 {
+  rectangle "<b><color:#61dafb>Results API</color></b>\n/api/results/:id\nPresigned download URLs\nLineage query\nQuality reports" as api_out #0a1929
+  rectangle "<b><color:#f2cc0c>Grafana</color></b>\nPipeline dashboards\nStorage metrics\nQuality trends" as grafana_out #1a2525
+}
+
+' ════════════════════════════════════════════
+' FLOW CONNECTIONS
+' ════════════════════════════════════════════
+
+' Sources → Bronze
+user_upload -down-> bronze_func : raw FASTQ bytes
+kafka_weather -down-> bronze_func : weather JSON
+sra_fetch -down-> bronze_func : SRA FASTQ
+
+bronze_func -down-> bronze_bucket : <color:#cd7f32>genomic-bronze/{sample}/raw/
+
+' Bronze → Processing
+bronze_bucket -down-> processing : FASTQ input\n(decompress for Nextflow)
+
+' Processing → Silver
+processing -down-> silver_func : output files\nper process
+
+silver_func -down-> silver_bucket : <color:#c0c0c0>genomic-silver/{sample}/{run}/{stage}/
+
+' Silver → Gold
+silver_bucket -down-> gold_func : filtered + scored
+
+gold_func -down-> gold_bucket : <color:#ffd700>genomic-gold/{sample}/assembly/\n<color:#ffd700>genomic-gold/{sample}/bins/{tier}/
+
+' Metadata tracking
+bronze_func -right-> tbl_objects : INSERT\nobject record
+silver_func -right-> tbl_objects : INSERT\n+ process metadata
+silver_func -right-> tbl_lineage : INSERT\nBronze → Silver
+gold_func -left-> tbl_artifacts : INSERT\nquality tier
+gold_func -left-> tbl_lineage : INSERT\nSilver → Gold
+
+' Output
+gold_bucket -down-> api_out : presigned URLs
+tbl_artifacts -down-> api_out : quality metadata
+tbl_lineage -down-> api_out : full lineage chain
+tbl_objects -down-> grafana_out : storage metrics
+
+' ════════════════════════════════════════════
+' LINEAGE NOTES
+' ════════════════════════════════════════════
+note right of tbl_lineage
+  <b>Lineage Chain Example:</b>
+  ---
+  <color:#cd7f32>Bronze</color> sample_001/raw/reads.fastq.gz
+    ↓ NANOPLOT
+  <color:#c0c0c0>Silver</color> sample_001/run_42/01_QC/nanoplot/report.html
+    ↓ FLYE
+  <color:#c0c0c0>Silver</color> sample_001/run_42/03_assembly/assembly.fasta
+    ↓ METABAT2
+  <color:#c0c0c0>Silver</color> sample_001/run_42/04_binning/metabat2/bin.1.fa
+    ↓ CHECKM → GOLD_CURATION
+  <color:#ffd700>Gold</color> sample_001/bins/high/bin.1.fa
+    (completeness=97.2%, contamination=1.3%)
+end note
+
+note bottom of gold_bucket
+  <b>CheckM Quality Tiers:</b>
+  ---
+  <color:#4ade80><b>HIGH</b></color>   completeness ≥ 90%  AND  contamination < 5%
+  <color:#fbbf24><b>MEDIUM</b></color> completeness ≥ 50%  AND  contamination < 10%
+  <color:#f87171><b>LOW</b></color>    everything else (not promoted to Gold)
+end note
+
+' ════════════════════════════════════════════
+' LEGEND
+' ════════════════════════════════════════════
+legend right
+  |= Layer |= MinIO Bucket |= Purpose |= Quality Gate |
+  | <color:#cd7f32><b>Bronze</b></color> | genomic-bronze | Raw immutable data | Hash dedup |
+  | <color:#c0c0c0><b>Silver</b></color> | genomic-silver | Processed per tool | Pipeline success |
+  | <color:#ffd700><b>Gold</b></color> | genomic-gold | Curated artifacts | CheckM scoring |
+  |= DB Table |= Role |= Key Fields |= Layer |
+  | minio_objects | Object registry | object_key, pipeline_id, process_name | All |
+  | data_lineage | Transformation chain | source → target, process | Bronze↔Silver↔Gold |
+  | pipeline_artifacts | Quality metadata | quality_tier, quality_score, N50 | Gold |
+  | minio_buckets | Bucket registry | layer_type, versioning | All |
+endlegend
+
+@enduml

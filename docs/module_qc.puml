@@ -1,0 +1,25 @@
+@startuml qc_module
+
+title Quality Control Module (Stage 1)
+
+package "INPUT LAYER" {
+  rectangle "Raw FASTQ\n45,328 reads | 312 Mbp\n—\nOxford Nanopore MinION\nFormat: FASTQ (seq + quality)" as input
+}
+
+package "QUALITY ASSESSMENT" {
+  rectangle "NanoPlot v1.40\n—\nAnalyze read length (N50, N90)\nCheck quality scores (Q7-Q15)\nValidate GC content (40-60%)\n—\nDecision: Accept if Q>10" as nanoplot
+}
+
+package "FILTERING" {
+  rectangle "Filtlong v0.2.1\n—\nMin length: 1000 bp\nMin quality: Q10\nKeep best: 90%\n—\nRemove short/low-Q reads" as filtlong
+}
+
+package "OUTPUT LAYER" {
+  rectangle "Filtered FASTQ\n40,795 reads | 281 Mbp\n—\nRetained: 90% best reads\nReady for assembly" as output
+}
+
+input -down-> nanoplot : Raw data
+nanoplot -down-> filtlong : QC passed
+filtlong -down-> output : High-quality reads
+
+@enduml

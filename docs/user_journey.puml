@@ -1,0 +1,36 @@
+@startuml user_journey
+
+title User Journey
+
+actor Researcher
+participant "UPGRADE\nPlatform" as platform
+participant "Pipeline" as pipeline
+participant "Dashboard" as dashboard
+actor "Public Health" as health
+
+Researcher -> platform : Upload FASTQ\n(Monday 9 AM)
+platform -> pipeline : Start analysis
+pipeline -> pipeline : Stage 1-2: QC + Assembly\n(2 hours)
+pipeline -> pipeline : Stage 3-4: Binning + ARG\n(1 hour)
+pipeline -> dashboard : Complete\n(Tuesday 11 AM)
+
+Researcher -> dashboard : View results
+dashboard -> Researcher : 3 species found\n12 ARGs detected
+
+note over dashboard
+  Critical Finding:
+  blaCTX-M-15 (ESBL)
+  in E. coli
+end note
+
+Researcher -> health : Report resistance
+health -> health : Implement intervention
+
+note over health
+  Action taken:
+  Enhanced surveillance
+  Antibiotic stewardship
+  Source investigation
+end note
+
+@enduml

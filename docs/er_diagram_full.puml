@@ -1,0 +1,534 @@
+@startuml upgrade_er_full
+skinparam linetype ortho
+skinparam nodesep 55
+skinparam ranksep 70
+skinparam defaultFontSize 10
+skinparam defaultFontName Helvetica
+skinparam backgroundColor #F8F9FA
+skinparam classBorderThickness 1.5
+skinparam classAttributeIconSize 0
+skinparam ArrowColor #555555
+skinparam ArrowThickness 1.2
+
+' ══════════════════════════════════════════════
+' DOMAIN 1: AUTH
+' ══════════════════════════════════════════════
+package "AUTH" #D6EAF8 {
+
+  class "users" #D6EAF8 {
+    <<PK>> user_id : SERIAL
+    ..
+    username : VARCHAR
+    email : VARCHAR
+    password_hash : VARCHAR
+    role : VARCHAR
+    is_active : BOOLEAN
+    <<FK>> institution_id : INT
+    created_at : TIMESTAMP
+    <b>2 rows</b>
+  }
+
+  class "user_sessions" #EAECEE {
+    <<PK>> session_id : SERIAL
+    ..
+    <<FK>> user_id : INT
+    token : VARCHAR
+    expires_at : TIMESTAMP
+    <color:red>0 rows — JWT не пишет сессии</color>
+  }
+
+  class "user_permissions" #EAECEE {
+    <<PK>> permission_id : SERIAL
+    ..
+    <<FK>> user_id : INT
+    resource_type : VARCHAR
+    action : VARCHAR
+    <<FK>> granted_by : INT
+    <color:red>0 rows — RBAC не реализован</color>
+  }
+}
+
+' ══════════════════════════════════════════════
+' DOMAIN 2: GEO & WEATHER
+' ══════════════════════════════════════════════
+package "GEO & WEATHER" #E8F8F5 {
+
+  class "locations" #E8F8F5 {
+    <<PK>> location_id : SERIAL
+    ..
+    name : VARCHAR
+    city : VARCHAR
+    country : VARCHAR
+    latitude : FLOAT
+    longitude : FLOAT
+    timezone : VARCHAR
+    <b>21 rows</b>
+  }
+
+  class "weather_measurements" #E8F8F5 {
+    <<PK>> weather_id : SERIAL
+    ..
+    <<FK>> location_id : INT
+    measurement_date : DATE
+    temperature_2m : FLOAT
+    precipitation : FLOAT
+    wind_speed_10m : FLOAT
+    relative_humidity_2m : FLOAT
+    <b>33 723 rows — ACTIVE</b>
+  }
+}
+
+' ══════════════════════════════════════════════
+' DOMAIN 3: SAMPLES
+' ══════════════════════════════════════════════
+package "SAMPLES" #FEF9E7 {
+
+  class "samples" #FEF9E7 {
+    <<PK>> sample_id : SERIAL
+    ..
+    sample_code : VARCHAR UNIQUE
+    sample_type : VARCHAR
+    collection_date : DATE
+    sequencing_platform : VARCHAR
+    file_path : VARCHAR
+    latitude : FLOAT
+    longitude : FLOAT
+    city : VARCHAR
+    country : VARCHAR
+    <<FK>> location_id : INT
+    metadata_json : JSONB
+    <b>787 rows — ACTIVE</b>
+  }
+}
+
+' ══════════════════════════════════════════════
+' DOMAIN 4: PIPELINE CORE
+' ══════════════════════════════════════════════
+package "PIPELINE CORE" #FDEDEC {
+
+  class "pipeline_runs" #FDEDEC {
+    <<PK>> pipeline_id : SERIAL
+    ..
+    <<FK>> sample_id : INT
+    status : VARCHAR
+    job_id : VARCHAR
+    <<FK>> nextflow_execution_id : INT
+    started_at : TIMESTAMP
+    completed_at : TIMESTAMP
+    error_message : TEXT
+    cpu_cores : INT
+    memory_gb : FLOAT
+    results_path : VARCHAR
+    silver_path : VARCHAR
+    gold_path : VARCHAR
+    summary_json : JSONB
+    quality_score : FLOAT
+    amr_risk_score : FLOAT
+    <b>717 rows — ACTIVE</b>
+  }
+
+  class "pipeline_progress_events" #FDEDEC {
+    <<PK>> event_id : SERIAL
+    ..
+    <<FK>> pipeline_id : INT
+    event_type : VARCHAR
+    step : VARCHAR
+    status : VARCHAR
+    progress_percent : INT
+    metadata : JSONB
+    created_at : TIMESTAMP
+    <b>3 330 rows — ACTIVE</b>
+  }
+
+  class "pipeline_artifacts" #FDEDEC {
+    <<PK>> artifact_id : SERIAL
+    ..
+    <<FK>> pipeline_id : INT
+    artifact_type : VARCHAR
+    artifact_name : VARCHAR
+    <<FK>> minio_object_id : INT
+    quality_tier : VARCHAR
+    quality_score : FLOAT
+    process_name : VARCHAR
+    metadata : JSONB
+    <b>246 rows — ACTIVE</b>
+  }
+}
+
+' ══════════════════════════════════════════════
+' DOMAIN 5: NEXTFLOW TRACKING
+' ══════════════════════════════════════════════
+package "NEXTFLOW EXECUTION" #F9EBEA {
+
+  class "nextflow_workflows" #F9EBEA {
+    <<PK>> workflow_id : SERIAL
+    ..
+    workflow_name : VARCHAR
+    workflow_version : VARCHAR
+    nextflow_version : VARCHAR
+    is_active : BOOLEAN
+    <b>1 row</b>
+  }
+
+  class "nextflow_executions" #F9EBEA {
+    <<PK>> execution_id : SERIAL
+    ..
+    <<FK>> workflow_id : INT
+    execution_name : VARCHAR
+    nextflow_run_name : VARCHAR
+    status : VARCHAR
+    start_time : TIMESTAMP
+    end_time : TIMESTAMP
+    duration_seconds : INT
+    <b>603 rows — ACTIVE</b>
+  }
+
+  class "nextflow_processes" #EAECEE {
+    <<PK>> process_id : SERIAL
+    ..
+    <<FK>> execution_id : INT
+    process_name : VARCHAR
+    status : VARCHAR
+    duration_ms : INT
+    <color:red>0 rows — не заполняется</color>
+  }
+}
+
+' ══════════════════════════════════════════════
+' DOMAIN 6: LAKEHOUSE STORAGE
+' ══════════════════════════════════════════════
+package "LAKEHOUSE (MinIO)" #EBF5FB {
+
+  class "minio_buckets" #EBF5FB {
+    <<PK>> bucket_id : SERIAL
+    ..
+    bucket_name : VARCHAR UNIQUE
+    layer : VARCHAR
+    description : TEXT
+    <b>3 rows: bronze/silver/gold</b>
+  }
+
+  class "minio_objects" #EBF5FB {
+    <<PK>> object_id : SERIAL
+    ..
+    <<FK>> bucket_id : INT
+    <<FK>> sample_id : INT
+    <<FK>> pipeline_id : INT
+    <<FK>> execution_id : INT
+    object_key : VARCHAR
+    original_filename : VARCHAR
+    content_type : VARCHAR
+    size_bytes : BIGINT
+    checksum_md5 : VARCHAR
+    layer_stage : VARCHAR
+    process_name : VARCHAR
+    <b>17 212 rows — ACTIVE (16 MB)</b>
+  }
+
+  class "data_lineage" #EBF5FB {
+    <<PK>> lineage_id : SERIAL
+    ..
+    <<FK>> source_object_id : INT
+    <<FK>> target_object_id : INT
+    transformation_type : VARCHAR
+    transformation_process : VARCHAR
+    transformation_time : TIMESTAMP
+    transformation_metadata : JSONB
+    <b>12 958 rows — ACTIVE</b>
+  }
+}
+
+' ══════════════════════════════════════════════
+' DOMAIN 7: ANALYSIS RESULTS
+' ══════════════════════════════════════════════
+package "ANALYSIS RESULTS" #F5EEF8 {
+
+  class "assemblies" #F5EEF8 {
+    <<PK>> assembly_id : SERIAL
+    ..
+    <<FK>> sample_id : INT
+    <<FK>> pipeline_run_id : INT
+    assembler : VARCHAR
+    total_contigs : INT
+    total_length : BIGINT
+    n50_contig : INT
+    gc_content : FLOAT
+    completeness : FLOAT
+    contamination : FLOAT
+    quality_grade : VARCHAR
+    <b>38 rows</b>
+  }
+
+  class "quality_control_results" #F5EEF8 {
+    <<PK>> qc_id : SERIAL
+    ..
+    <<FK>> sample_id : INT
+    total_reads : BIGINT
+    mean_quality_score : FLOAT
+    mean_read_length : INT
+    n50_read_length : INT
+    is_passed : BOOLEAN
+    qc_tool : VARCHAR
+    <b>38 rows</b>
+  }
+
+  class "detected_organisms" #EAECEE {
+    <<PK>> detection_id : SERIAL
+    ..
+    <<FK>> sample_id : INT
+    <<FK>> pipeline_run_id : INT
+    organism_name : VARCHAR
+    taxonomy_rank : VARCHAR
+    classification_tool : VARCHAR
+    abundance : FLOAT
+    confidence_score : FLOAT
+    <<FK>> database_id : INT
+    <color:red>0 rows — Kraken2 не классифицирует</color>
+    <color:red>(недостаточная глубина ридов)</color>
+  }
+
+  class "resistance_genes" #EAECEE {
+    <<PK>> rg_id : SERIAL
+    ..
+    <<FK>> sample_id : INT
+    <<FK>> pipeline_run_id : INT
+    gene_name : VARCHAR
+    detection_tool : VARCHAR
+    coverage : FLOAT
+    identity : FLOAT
+    predicted_resistance : TEXT[]
+    <<FK>> gene_family_id : INT
+    <<FK>> database_id : INT
+    <color:orange>1 row — почти нет AMR генов</color>
+  }
+
+  class "virulence_factors" #EAECEE {
+    <<PK>> vf_id : SERIAL
+    ..
+    <<FK>> sample_id : INT
+    <<FK>> pipeline_run_id : INT
+    gene_name : VARCHAR
+    <<FK>> database_id : INT
+    <color:red>0 rows — нет INSERT в коде!</color>
+  }
+}
+
+' ══════════════════════════════════════════════
+' DOMAIN 8: REFERENCE / EMPTY (КАНДИДАТЫ НА УДАЛЕНИЕ)
+' ══════════════════════════════════════════════
+package "REFERENCE (все пустые — можно удалить)" #EAECEE {
+
+  class "databases_reference" #EAECEE {
+    <<PK>> database_id : SERIAL
+    ..
+    database_name : VARCHAR
+    version : VARCHAR
+    <color:red>0 rows</color>
+  }
+
+  class "gene_families" #EAECEE {
+    <<PK>> gene_family_id : SERIAL
+    ..
+    family_name : VARCHAR
+    mechanism : VARCHAR
+    <color:red>0 rows</color>
+  }
+
+  class "antibiotic_reference" #EAECEE {
+    <<PK>> antibiotic_id : SERIAL
+    ..
+    name : VARCHAR
+    drug_class : VARCHAR
+    <color:red>0 rows</color>
+  }
+
+  class "gene_antibiotic_associations" #EAECEE {
+    <<PK>> assoc_id : SERIAL
+    ..
+    <<FK>> resistance_gene_id : INT
+    <<FK>> antibiotic_id : INT
+    <color:red>0 rows</color>
+  }
+}
+
+' ══════════════════════════════════════════════
+' DOMAIN 9: LEGACY / UNUSED (КАНДИДАТЫ НА УДАЛЕНИЕ)
+' ══════════════════════════════════════════════
+package "LEGACY — UNUSED (все пустые)" #F2F3F4 {
+
+  class "institutions" #F2F3F4 {
+    <<PK>> institution_id : SERIAL
+    ..
+    name : VARCHAR
+    country : VARCHAR
+    <color:red>0 rows</color>
+  }
+
+  class "researchers" #F2F3F4 {
+    <<PK>> researcher_id : SERIAL
+    ..
+    name : VARCHAR
+    <<FK>> institution_id : INT
+    <color:red>0 rows</color>
+  }
+
+  class "sampling_campaigns" #F2F3F4 {
+    <<PK>> campaign_id : SERIAL
+    ..
+    name : VARCHAR
+    <<FK>> institution_id : INT
+    <color:red>0 rows</color>
+  }
+
+  class "sequencing_runs" #F2F3F4 {
+    <<PK>> run_id : SERIAL
+    ..
+    <<FK>> sample_id : INT
+    platform : VARCHAR
+    run_accession : VARCHAR
+    total_reads : BIGINT
+    <color:red>0 rows</color>
+  }
+
+  class "hosts" #F2F3F4 {
+    <<PK>> host_id : SERIAL
+    ..
+    host_type : VARCHAR
+    species : VARCHAR
+    <color:red>0 rows</color>
+  }
+
+  class "pathogen_reference" #F2F3F4 {
+    <<PK>> pathogen_id : SERIAL
+    ..
+    species : VARCHAR
+    genus : VARCHAR
+    <color:red>0 rows</color>
+  }
+
+  class "biobank" #F2F3F4 {
+    <<PK>> biobank_id : SERIAL
+    ..
+    <<FK>> sample_id : INT
+    storage_location : VARCHAR
+    <color:red>0 rows</color>
+  }
+
+  class "sample_metadata" #F2F3F4 {
+    <<PK>> metadata_id : SERIAL
+    ..
+    <<FK>> sample_id : INT
+    <<FK>> weather_id : INT
+    environmental_context : JSONB
+    <color:red>0 rows</color>
+  }
+
+  class "external_links" #F2F3F4 {
+    <<PK>> link_id : SERIAL
+    ..
+    <<FK>> sample_id : INT
+    <<FK>> assembly_id : INT
+    repository : VARCHAR
+    accession : VARCHAR
+    <color:red>0 rows</color>
+  }
+
+  class "functional_annotations" #F2F3F4 {
+    <<PK>> annotation_id : SERIAL
+    ..
+    <<FK>> assembly_id : INT
+    <<FK>> pipeline_run_id : INT
+    cog_category : VARCHAR
+    <color:red>0 rows</color>
+  }
+
+  class "layer_transitions" #F2F3F4 {
+    <<PK>> transition_id : SERIAL
+    ..
+    <<FK>> sample_id : INT
+    <<FK>> source_object_id : INT
+    <<FK>> target_object_id : INT
+    from_layer / to_layer : VARCHAR
+    <color:red>0 rows</color>
+  }
+
+  class "risk_logs" #F2F3F4 {
+    <<PK>> risk_id : SERIAL
+    ..
+    <<FK>> sample_id : INT
+    risk_level : VARCHAR
+    <color:red>0 rows</color>
+  }
+
+  class "alert_notifications" #F2F3F4 {
+    <<PK>> notification_id : SERIAL
+    ..
+    <<FK>> risk_id : INT
+    <<FK>> recipient_user_id : INT
+    status : VARCHAR
+    <color:red>0 rows</color>
+  }
+}
+
+' ══════════════════════════════════════════════
+' RELATIONSHIPS — CORE ACTIVE
+' ══════════════════════════════════════════════
+
+"users" "1" *-- "0..*" "user_sessions" : has
+"users" "1" *-- "0..*" "user_permissions" : has
+
+"locations" "1" *-- "0..*" "samples" : "collected at"
+"locations" "1" *-- "0..*" "weather_measurements" : measured
+
+"samples" "1" *-- "0..*" "pipeline_runs" : "processed in"
+"samples" "1" *-- "0..*" "assemblies" : has
+"samples" "1" *-- "0..*" "quality_control_results" : has
+"samples" "1" *-- "0..*" "detected_organisms" : detected
+"samples" "1" *-- "0..*" "resistance_genes" : found
+"samples" "1" *-- "0..*" "virulence_factors" : identified
+"samples" "1" *-- "0..*" "minio_objects" : stored
+
+"pipeline_runs" "1" *-- "0..*" "pipeline_progress_events" : emits
+"pipeline_runs" "1" *-- "0..*" "pipeline_artifacts" : produces
+"pipeline_runs" "1" *-- "0..*" "assemblies" : generates
+"pipeline_runs" "1" *-- "0..*" "quality_control_results" : generates
+"pipeline_runs" "1" *-- "0..*" "detected_organisms" : detects
+"pipeline_runs" "1" *-- "0..*" "resistance_genes" : finds
+"pipeline_runs" "1" *-- "0..*" "virulence_factors" : identifies
+"pipeline_runs" "1" *-- "0..*" "minio_objects" : writes
+"pipeline_runs" "0..*" --* "1" "nextflow_executions" : "tracked by"
+
+"nextflow_workflows" "1" *-- "0..*" "nextflow_executions" : executes
+"nextflow_executions" "1" *-- "0..*" "nextflow_processes" : runs
+"nextflow_executions" "1" *-- "0..*" "minio_objects" : creates
+
+"minio_buckets" "1" *-- "0..*" "minio_objects" : contains
+"minio_objects" "1" *-- "0..*" "pipeline_artifacts" : referenced
+"minio_objects" "1" *-- "0..*" "data_lineage" : "source >"
+"minio_objects" "1" *-- "0..*" "data_lineage" : "< target"
+
+"assemblies" "1" *-- "0..*" "external_links" : linked
+"assemblies" "1" *-- "0..*" "functional_annotations" : annotated
+
+"databases_reference" "1" --> "0..*" "detected_organisms" : classifies
+"databases_reference" "1" --> "0..*" "resistance_genes" : from
+"databases_reference" "1" --> "0..*" "virulence_factors" : from
+"gene_families" "1" --> "0..*" "resistance_genes" : classifies
+"antibiotic_reference" "1" --> "0..*" "gene_antibiotic_associations" : in
+"resistance_genes" "1" --> "0..*" "gene_antibiotic_associations" : confers
+
+"institutions" "1" --> "0..*" "researchers" : employs
+"institutions" "1" --> "0..*" "sampling_campaigns" : runs
+"researchers" "1" --> "0..*" "sampling_campaigns" : leads
+"sampling_campaigns" "1" --> "0..*" "samples" : includes
+
+"samples" "1" --> "0..*" "biobank" : stored
+"samples" "1" --> "0..*" "sample_metadata" : has
+"samples" "1" --> "0..*" "sequencing_runs" : sequenced
+"samples" "1" --> "0..*" "risk_logs" : flagged
+"risk_logs" "1" --> "0..*" "alert_notifications" : triggers
+"weather_measurements" "1" --> "0..*" "sample_metadata" : recorded
+"hosts" "1" --> "0..*" "samples" : from
+"pathogen_reference" "1" --> "0..*" "samples" : targets
+
+@enduml

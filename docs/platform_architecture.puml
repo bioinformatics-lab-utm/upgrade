@@ -1,0 +1,184 @@
+@startuml platform_architecture
+
+!define ICONURL https://raw.githubusercontent.com/tupadr3/plantuml-icon-font-sprites/v2.4.0
+skinparam backgroundColor #0d1117
+skinparam defaultFontColor #c9d1d9
+skinparam defaultFontSize 11
+skinparam defaultFontName "Segoe UI"
+skinparam roundCorner 12
+skinparam shadowing false
+skinparam packageBorderColor #30363d
+skinparam packageBackgroundColor #161b22
+skinparam rectangleBorderColor #30363d
+skinparam rectangleBackgroundColor #1a1e24
+skinparam databaseBorderColor #30363d
+skinparam databaseBackgroundColor #1a1e24
+skinparam storageBorderColor #30363d
+skinparam storageBackgroundColor #1a1e24
+skinparam queueBorderColor #30363d
+skinparam queueBackgroundColor #1a1e24
+skinparam arrowColor #58a6ff
+skinparam noteBorderColor #30363d
+skinparam noteBackgroundColor #161b22
+
+title <b><color:#58a6ff>UPGRADE Platform</color></b> — Genomic Surveillance Architecture\n<color:#8b949e>Metagenomic Pipeline · Data Lakehouse · Real-time Monitoring</color>
+
+' ════════════════════════════════════════════
+' CLIENTS
+' ════════════════════════════════════════════
+package "Clients" as clients #0d1117 {
+  rectangle "<b>Web Browser</b>\nReact 18 · Leaflet · Plotly\n---\nPipeline Dashboard\nGenomic Map · Results\nWeather Overlay" as browser #1f2937
+  rectangle "<b>Admin</b>\npgAdmin · Kafka UI\nMinIO Console" as admin #1f2937
+}
+
+' ════════════════════════════════════════════
+' GATEWAY
+' ════════════════════════════════════════════
+package "Gateway" as gw <<Rectangle>> #1a0a0a {
+  rectangle "<b><color:#ff6b6b>Nginx</color></b>\nSSL/TLS 1.3 · Let's Encrypt\n---\nRate: 30 req/s API\nRate: 5 req/min Login\nUpload: 10 GB max\nWebSocket support" as nginx #2d0a0a
+}
+
+' ════════════════════════════════════════════
+' APPLICATION
+' ════════════════════════════════════════════
+package "Application Layer" as app #0d1117 {
+  rectangle "<b><color:#58a6ff>Sanic API</color></b> :8000\nAsync Python\nJWT Auth · CORS\n---\n/api/auth\n/api/pipeline\n/api/samples\n/api/results\n/api/monitoring" as sanic #0a1929
+
+  rectangle "<b><color:#58a6ff>React SPA</color></b> :3000\nPipelineDashboard\nResultsViewer\nGenomicsMap\nJobStatusMonitor" as react #0a1929
+}
+
+' ════════════════════════════════════════════
+' TASK EXECUTION
+' ════════════════════════════════════════════
+package "Task Execution" as tasks #0d1117 {
+  queue "<b><color:#ff6347>Redis 7</color></b> :6379\nJob Queue (RQ)\nSession Cache\nRate Limit Store" as redis #290a0a
+
+  rectangle "<b>RQ Worker</b>\nPipeline Executor\nTimeout: 12 hours\nAsync DB + MinIO" as worker #1a1e24
+}
+
+' ════════════════════════════════════════════
+' NEXTFLOW PIPELINE
+' ════════════════════════════════════════════
+package "Nextflow Pipeline  —  62 CPUs · 120 GB RAM  —  24 Docker Containers" as pipeline #071207 {
+  rectangle "<b>01 QC</b>\nNanoPlot\nFiltlong" as qc #0a2e0a
+  rectangle "<b>02 Assembly</b>\nFlye · Medaka\nFilter Contigs" as asm #0a2e0a
+  rectangle "<b>03 Binning</b>\nMetaBAT2 · CONCOCT\nCheckM · dRep" as bin #0a2e0a
+  rectangle "<b>04 Taxonomy</b>\nKraken2 · GTDB-Tk\nBracken" as tax #0a2e0a
+  rectangle "<b>05 Annotation</b>\nProkka\nABRicate · DeepARG" as ann #0a2e0a
+  rectangle "<b>06 Mobile</b>\nVirSorter2\nPlasmidFinder\nMOB-suite" as mob #0a2e0a
+}
+
+qc -right-> asm
+asm -right-> bin
+bin -right-> tax
+tax -right-> ann
+ann -right-> mob
+
+' ════════════════════════════════════════════
+' DATA LAKEHOUSE
+' ════════════════════════════════════════════
+package "Data Lakehouse  —  MinIO S3" as lakehouse #1a0d2e {
+  storage "<b><color:#cd7f32>Bronze</color></b>\n---\nRaw FASTQ\nWeather JSON\nUnprocessed" as bronze #3d2510
+
+  storage "<b><color:#c0c0c0>Silver</color></b>\n---\n01_QC/ · 03_assembly/\n04_binning/ · 06_kraken2/\n07_amr/ · Lineage" as silver #2d3040
+
+  storage "<b><color:#ffd700>Gold</color></b>\n---\nQuality MAGs\nCurated Reports\nCheckM Scored" as gold #3d3010
+}
+
+bronze -right-> silver : upload_to_silver()\nper process
+silver -right-> gold : curate_gold_layer()\nquality scoring
+
+' ════════════════════════════════════════════
+' DATA STORES
+' ════════════════════════════════════════════
+package "Data Stores" as stores #0d1117 {
+  database "<b><color:#336791>PostgreSQL 15</color></b> :5432\nPostGIS · asyncpg\n---\nsamples · pipeline_runs\nminio_objects · data_lineage\nusers · locations\nweather_measurements" as postgres #0a1629
+
+  rectangle "<b>Vault</b> :8200\nHashiCorp\n---\nDB passwords\nJWT key\nAPI keys" as vault #1a1a2e
+}
+
+' ════════════════════════════════════════════
+' STREAMING
+' ════════════════════════════════════════════
+package "Event Streaming" as streaming #1a0d00 {
+  queue "<b><color:#e07020>Kafka</color></b> :9092\nTopic: weather-data\n7-day retention" as kafka #2d1500
+
+  rectangle "<b>Zookeeper</b> :2181" as zk #1a1e24
+
+  rectangle "<b>Weather Producer</b>\nOpen-Meteo API\n30 min interval\nRO + MD cities" as wprod #2d1500
+
+  rectangle "<b>Weather Consumer</b>\nKafka → PostgreSQL\nKafka → MinIO Bronze" as wcons #2d1500
+}
+
+' ════════════════════════════════════════════
+' MONITORING
+' ════════════════════════════════════════════
+package "Observability" as monitoring #0a1a1a {
+  rectangle "<b><color:#e6522c>Prometheus</color></b> :9090\n30-day retention\n15s scrape" as prom #1a2525
+
+  rectangle "<b><color:#f2cc0c>Grafana</color></b> :3001\nDashboards\nAlerts" as grafana #1a2525
+
+  rectangle "<b>Loki</b> :3100 + <b>Promtail</b>\nLog aggregation" as loki #1a2525
+
+  rectangle "<b>AlertManager</b> :9093\nSeverity routing" as alertmgr #1a2525
+
+  rectangle "Exporters\n---\nNode · Postgres\nRedis" as exporters #1a2525
+}
+
+' ════════════════════════════════════════════
+' CONNECTIONS
+' ════════════════════════════════════════════
+
+' Client → Gateway
+browser -down-> nginx : HTTPS
+admin -down-> nginx : HTTPS
+
+' Gateway → App
+nginx -down-> sanic : proxy /api
+nginx -down-> react : proxy /
+nginx -down-> grafana : proxy /grafana
+
+' App → Services
+sanic -down-> postgres : asyncpg\n10-100 pool
+sanic -down-> redis : enqueue
+sanic -right-> vault : secrets
+sanic -down-> lakehouse : presigned URLs
+
+' Task execution
+redis -right-> worker : dequeue
+worker -down-> pipeline : nextflow run
+worker -down-> lakehouse : upload results
+worker -left-> postgres : update status
+
+' Streaming
+wprod -right-> kafka : produce
+kafka -left- zk
+kafka -right-> wcons : consume
+wcons -down-> postgres : weather
+wcons -down-> bronze : archive
+
+' Monitoring
+exporters -up-> prom
+sanic ..> prom : /metrics
+prom -right-> grafana
+prom -right-> alertmgr
+loki -up-> grafana
+
+' ════════════════════════════════════════════
+' LEGEND
+' ════════════════════════════════════════════
+legend right
+  |= Layer |= Tech |= Purpose |
+  | Gateway | Nginx + Certbot | SSL, rate limiting |
+  | Frontend | React 18 | Pipeline UI, maps |
+  | API | Sanic (Python) | REST, JWT auth |
+  | Queue | Redis 7 + RQ | Async job execution |
+  | Pipeline | Nextflow DSL2 | 24 bioinformatics tools |
+  | Lakehouse | MinIO S3 | Bronze → Silver → Gold |
+  | Database | PostgreSQL 15 | Metadata, lineage |
+  | Streaming | Kafka | Weather ingestion |
+  | Secrets | Vault | Credentials |
+  | Monitoring | Prometheus + Grafana | Metrics, logs, alerts |
+endlegend
+
+@enduml

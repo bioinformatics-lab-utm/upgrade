@@ -1,0 +1,30 @@
+@startuml binning_module
+
+title Binning Module (Stage 3)
+
+package "INPUT" {
+  rectangle "Polished Contigs\n234 contigs | 4.8 Mbp\n—\nMixed community genomes" as input
+}
+
+package "READ MAPPING" {
+  rectangle "BWA-MEM v0.7.17\n—\nBurrows-Wheeler Aligner\n—\n1. Index contigs\n2. Map reads to contigs\n3. Calculate coverage depth\n—\nOutput: BAM + coverage profiles" as bwa
+}
+
+package "GENOME BINNING" {
+  rectangle "MetaBAT2 v2.15\n—\nMulti-dimensional clustering\n—\nFeatures:\n• Coverage depth patterns\n• Tetranucleotide frequency (TNF)\n• Contig connectivity\n—\nParams: minContig=2500, minCV=1.0" as metabat2
+}
+
+package "QUALITY CONTROL" {
+  rectangle "CheckM v1.2.0\n—\nMarker gene analysis\n—\nMetrics:\n• Completeness (% marker genes)\n• Contamination (duplicates)\n—\nThreshold: >90% complete, <5% contam" as checkm
+}
+
+package "OUTPUT" {
+  rectangle "3 High-Quality Bins\n—\nE. coli: 2.8 Mb (95% complete)\nK. pneumoniae: 1.9 Mb (87%)\nP. aeruginosa: 3.1 Mb (93%)\n—\nEach bin = separate organism" as output
+}
+
+input -down-> bwa
+bwa -down-> metabat2 : Coverage data
+metabat2 -down-> checkm : Draft bins
+checkm -down-> output : High-quality MAGs
+
+@enduml
