@@ -432,3 +432,10 @@ backups/cleanup_*/
 generate-secrets.sh
 setup-database.sh
 diagnose.sh
+
+# Local sample data (large, not part of the repo)
+ont_sra_50/
+ont_sra_500/
+
+# Claude Code local settings (contain machine-specific permission history)
+.claude/

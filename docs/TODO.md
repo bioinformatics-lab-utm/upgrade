@@ -40,6 +40,13 @@
 
 - Найти способы и инструменты в которых можно использовать GPU для ускорения работы пайплайна
 
+### ⏸️ Alertmanager Configuration - DEFERRED Dec 29, 2025
+- Alertmanager отключен из docker-compose.yml из-за YAML syntax error (line 55)
+- Проблема: незакомментированный HTML блок в email_configs секции
+- Решение: закомментировать весь HTML блок (строки 56-159) в monitoring/alertmanager.yml
+- Статус: Не критично для работы pipeline, можно исправить позже
+- Файл закомментирован в docker-compose.yml для стабильности системы
+
 ## HIGH PRIORITY (P1)
 
 ### ✅ System Health (Quick Fixes) - COMPLETED Dec 21, 2025
