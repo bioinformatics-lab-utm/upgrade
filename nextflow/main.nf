@@ -141,6 +141,17 @@ include { BRACKEN as BRACKEN_METABAT2 } from './modules/bracken.nf'
 include { BRACKEN as BRACKEN_CONCOCT } from './modules/bracken.nf'
 include { BRACKEN_COMBINED_REPORT } from './modules/bracken.nf'
 include { PIPELINE_SUMMARY } from './modules/pipeline_summary.nf'
+include { KRAKEN2_READS; SKIP_ASSEMBLY_MARKER } from './modules/kraken2_reads.nf'
+
+// Parse a Flye-style genome-size string (e.g. '5m', '2.6g') into bytes,
+// using decimal (not binary) multipliers to match Flye's own convention.
+def parseGenomeSizeBytes(String size) {
+    def m = (size =~ /(?i)^([0-9.]+)\s*([kmg]?)$/)
+    if (!m.matches()) return 5_000_000L
+    def num = m[0][1] as Double
+    def mult = [k: 1_000L, m: 1_000_000L, g: 1_000_000_000L].get(m[0][2].toLowerCase(), 1_000_000L)
+    return (num * mult) as Long
+}
 
 workflow {
     
@@ -169,10 +180,37 @@ workflow {
     
     // Stage 2: Read Filtering with Filtlong
     FILTLONG(ont_reads_ch)
-    
-    // Stage 3: De novo Assembly with Flye (using filtered reads)
-    FLYE(FILTLONG.out.reads, params.flye_mode)
-    
+
+    // Stage 2.5: Estimate coverage (bases / assumed genome size) and decide
+    // whether assembly is even worth attempting. Samples with too few reads
+    // to plausibly assemble skip Flye (and everything downstream of it)
+    // entirely instead of burning compute on a guaranteed failure.
+    genome_size_bytes = parseGenomeSizeBytes(params.flye_genome_size)
+
+    coverage_ch = FILTLONG.out.reads.join(FILTLONG.out.bases, by: 0)
+        .map { sample_id, reads, bases_file ->
+            def text = bases_file.text.trim()
+            // toDouble().toLong() (not toLong() directly) tolerates scientific
+            // notation (e.g. "4.46655e+09") as well as plain integers
+            def bases = text ? text.toDouble().toLong() : 0L
+            def coverage = bases / genome_size_bytes
+            tuple(sample_id, reads, coverage)
+        }
+
+    branched = coverage_ch.branch { sample_id, reads, coverage ->
+        assemble: coverage >= params.min_coverage_for_assembly
+        skip_low_coverage: true
+    }
+
+    // Stage 3: De novo Assembly with Flye (using filtered reads) - only for
+    // samples that cleared the coverage bar
+    FLYE(branched.assemble.map { sid, reads, cov -> tuple(sid, reads) }, params.flye_mode)
+
+    // Record why assembly was skipped for the rest, so it shows up in the
+    // sample summary as "skipped_low_coverage" rather than looking like a
+    // silent gap or a failure
+    SKIP_ASSEMBLY_MARKER(branched.skip_low_coverage)
+
     // Stage 3.1: Medaka polishing (ONT-specific) - CRITICAL for gene accuracy!
     if (params.run_medaka) {
         // Combine Flye assembly with filtered reads for polishing
@@ -313,6 +351,11 @@ workflow {
 
     // Stage 8: Taxonomic Classification with Kraken2 (optional - only if database provided)
     if (params.kraken2_db) {
+        // Read-based classification for every sample (both branches above) -
+        // the only taxonomy result available for samples where assembly was
+        // skipped/failed, and a useful cross-check for assembled ones too
+        KRAKEN2_READS(FILTLONG.out.reads)
+
         // Run Kraken2 on dereplicated bins
         KRAKEN2_METABAT2(METABAT2.out.bins, "metabat2")
         

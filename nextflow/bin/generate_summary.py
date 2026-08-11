@@ -332,6 +332,10 @@ def main():
     # Parse all components
     qc = parse_nanoplot(results_dir)
     assembly = parse_assembly(results_dir)
+
+    skip_marker = results_dir / "03_assembly" / f"{sample_id}.assembly_skipped.txt"
+    assembly_status = "skipped_low_coverage" if skip_marker.exists() else "completed"
+
     mags = parse_checkm(results_dir)
     amr_data, amr_risk = parse_abricate(results_dir)
     taxonomy = parse_kraken(results_dir)
@@ -352,6 +356,7 @@ def main():
     summary = {
         "sample_id": sample_id,
         "status": "completed",
+        "assembly_status": assembly_status,
         "quality_score": quality_score,
         "amr_risk_score": round(amr_risk, 1),
         "qc": qc or {},
