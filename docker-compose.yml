@@ -299,6 +299,7 @@ services:
       - DOCKER_UID=1000
       - DOCKER_GID=988
       - WORK_DIR=/tmp/nf-work
+      - UPGRADE_BASE_DIR=/home/nicolaedrabcinski/upgrade
     volumes:
       - ./web-dashboard/backend:/app
       - /data:/data
