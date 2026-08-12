@@ -214,6 +214,7 @@ services:
     - FRONTEND_URL=http://localhost:${GEO_DASHBOARD_FRONTEND_PORT}
     - JWT_SECRET=${JWT_SECRET}
     - ALLOWED_ORIGINS=${ALLOWED_ORIGINS:-http://localhost:3000,http://100.72.39.49:3000}
+    - UPGRADE_BASE_DIR=/home/nicolaedrabcinski/upgrade
 
     volumes:
       - ./web-dashboard/backend:/app
