@@ -282,6 +282,14 @@ class PipelineExecutor:
             from minio_helper import download_from_bronze, get_minio_client
 
             local_input_dir = sample_work_dir / 'input'
+            # sample_work_dir is shared across attempts for the same sample_code (kept
+            # for -resume caching), but download_from_bronze() only fetches files tied
+            # to THIS pipeline_id - a stale file left behind by an old attempt (e.g. one
+            # that crashed before the failure-path cleanup ran) would silently coexist
+            # alongside the fresh download and get double-processed. Clear it first.
+            if local_input_dir.exists():
+                import shutil
+                shutil.rmtree(local_input_dir, ignore_errors=True)
             local_input_dir.mkdir(parents=True, exist_ok=True)
 
             asyncio.run(self.track_progress(
