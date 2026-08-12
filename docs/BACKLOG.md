@@ -28,7 +28,7 @@
 ## P2 — код и инфраструктура
 
 - [ ] **`06_kraken2_reads/`** не подключён к `generate_summary.py` — отчёт по ридам лежит на диске (`results/<sample>/06_kraken2_reads/`), не попадает в JSON-сводку и дашборд.
-- [ ] Проверить, не нужен ли `UPGRADE_BASE_DIR` ещё каким-то сервисам, кроме `rq-worker` (если Nextflow запускается ещё откуда-то).
+- [x] **`UPGRADE_BASE_DIR` проверен и добавлен `web-backend`.** Тот же DooD-доступ (`/nextflow:ro` + `docker.sock`) и тот же код (`tasks/pipeline_tasks.py`) через общий bind-mount `/app`, но без переменной — латентный риск, если когда-нибудь появится прямой вызов `execute_nextflow_pipeline` в обход RQ. Добавлено (коммит `9121f0ae`), контейнер пересоздан. Прогонов Nextflow больше нигде в проекте не запускается (только batch-скрипты `scripts/data_processors/*` и тестовые `.sh`, которые уже используют свои собственные вызовы, не через web-backend/rq-worker).
 - [ ] Read-based AMR по-прежнему невозможен (Abricate требует сборку контигов) — постоянное архитектурное ограничение, не баг, но стоит иметь в виду при планировании low-coverage образцов.
 - [ ] **MetaSUB-миграция (`013_metasub_metadata.sql`) — только схема.** `models/sample.py` (`SampleBase`/`SampleCreate`) и `repositories/sample_repository.py` (явный 24-колоночный `INSERT`) ещё не знают о новых полях — записать их через живой `/api/pipeline/submit` пока нельзя, только напрямую SQL (как это уже делают batch-скрипты импорта).
 - [ ] **`MetaSUB_metadata_protocol.pdf`** лежит в корне репозитория незакоммиченным — пользователь загрузил для сверки, не уточнили, нужно ли добавлять в git (например, в `docs/`).
