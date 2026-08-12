@@ -128,6 +128,31 @@ class PipelineExecutor:
             logger.error(f"Failed to create nextflow_execution: {e}")
             return None
 
+    async def finalize_nextflow_execution(self, execution_id: Optional[int], success: bool, exit_status: Optional[int] = None) -> None:
+        """Mark a nextflow_executions row as finished. No-op if execution_id is None
+        (e.g. the pipeline errored before create_nextflow_execution ran)."""
+        if execution_id is None:
+            return
+        try:
+            conn = await asyncpg.connect(config.DATABASE_URL)
+            try:
+                await conn.execute(
+                    """
+                    UPDATE nextflow_executions
+                    SET status = $1,
+                        complete_time = now(),
+                        duration = now() - start_time,
+                        success = $2,
+                        exit_status = $3
+                    WHERE execution_id = $4
+                    """,
+                    'succeeded' if success else 'failed', success, exit_status, execution_id
+                )
+            finally:
+                await conn.close()
+        except Exception as e:
+            logger.error(f"Failed to finalize nextflow_execution {execution_id}: {e}")
+
     async def _record_uploaded_file(self, bucket_name: str, object_info: Dict, pipeline_id: int, execution_id: int, layer_stage: str = 'silver') -> Optional[int]:
         """Record uploaded file into minio_objects and set pipeline/execution linkage."""
         try:
@@ -224,6 +249,7 @@ class PipelineExecutor:
         job_id = job.id.decode('utf-8') if isinstance(job.id, bytes) else job.id
         logger.info(f"Starting pipeline execution for {sample_code} (job: {job_id})")
 
+        execution_id = None
         try:
             # Update status to running
             import asyncio
@@ -489,6 +515,7 @@ class PipelineExecutor:
                 asyncio.run(self.update_pipeline_status(
                     pipeline_id, 'completed', exit_code=0
                 ))
+                asyncio.run(self.finalize_nextflow_execution(execution_id, success=True, exit_status=0))
                 asyncio.run(self.track_progress(
                     pipeline_id, 'execution', 'nextflow_complete',
                     'completed', 100,
@@ -510,6 +537,7 @@ class PipelineExecutor:
                 asyncio.run(self.update_pipeline_status(
                     pipeline_id, 'failed', error_message=error_msg, exit_code=result.returncode
                 ))
+                asyncio.run(self.finalize_nextflow_execution(execution_id, success=False, exit_status=result.returncode))
                 asyncio.run(self.track_progress(
                     pipeline_id, 'execution', 'nextflow_failed',
                     'failed', 0,
@@ -526,6 +554,7 @@ class PipelineExecutor:
             asyncio.run(self.update_pipeline_status(
                 pipeline_id, 'failed', error_message=error_msg
             ))
+            asyncio.run(self.finalize_nextflow_execution(execution_id, success=False))
 
             return {
                 'success': False,
@@ -541,6 +570,7 @@ class PipelineExecutor:
             asyncio.run(self.update_pipeline_status(
                 pipeline_id, 'failed', error_message=error_msg
             ))
+            asyncio.run(self.finalize_nextflow_execution(execution_id, success=False))
 
             return {
                 'success': False,
