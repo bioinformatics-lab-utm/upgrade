@@ -728,6 +728,32 @@ class PipelineExecutor:
                             sp.get('abundance', 0.0),
                         )
 
+            # ---- 3b. detected_organisms (read-based Kraken2, KRAKEN2_READS) ----
+            # Distinct classification_tool ('Kraken2_reads' vs 'Kraken2') so this stays
+            # separable from bin-based rows above - it's one classification per sample,
+            # not a per-bin list, and the only taxonomy available when assembly was
+            # skipped for low coverage.
+            taxonomy_reads = summary.get('taxonomy_reads')
+            if taxonomy_reads and taxonomy_reads.get('top_taxonomy'):
+                existing = await conn.fetchval(
+                    "SELECT count(*) FROM detected_organisms WHERE sample_id=$1 AND pipeline_run_id=$2 AND classification_tool='Kraken2_reads'",
+                    sample_id, pipeline_id
+                )
+                if not existing:
+                    await conn.execute("""
+                        INSERT INTO detected_organisms (
+                            sample_id, pipeline_run_id, organism_name, scientific_name,
+                            taxonomy_rank, classification_tool,
+                            read_count, confidence_score
+                        ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
+                    """,
+                        sample_id, pipeline_id,
+                        taxonomy_reads['top_taxonomy'], taxonomy_reads['top_taxonomy'],
+                        'species', 'Kraken2_reads',
+                        taxonomy_reads.get('num_reads', 0),
+                        taxonomy_reads.get('confidence', 0.0),
+                    )
+
             # ---- 4. resistance_genes (Abricate) ----
             amr = summary.get('amr') or {}
             genes = amr.get('genes') or []
