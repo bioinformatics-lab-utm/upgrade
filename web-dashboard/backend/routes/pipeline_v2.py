@@ -62,6 +62,7 @@ async def generate_presigned_urls(request):
         pipeline_name = data.get('pipeline_name', 'nextflow_pipeline')
         parameters = data.get('parameters', {})
         notes = data.get('notes', '')
+        metasub_fields = data.get('metasub_fields')
 
         logger.info(f"[UPLOAD] Presigned URL request for sample_code={sample_code}, files={len(files_info)}")
 
@@ -84,7 +85,8 @@ async def generate_presigned_urls(request):
             files_info=files_info,
             pipeline_name=pipeline_name,
             parameters=parameters,
-            notes=notes
+            notes=notes,
+            metasub_fields=metasub_fields
         )
 
         request_time = time.time() - request_start

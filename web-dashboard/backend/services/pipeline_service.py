@@ -318,11 +318,12 @@ class PipelineService:
         files_info: List[Dict[str, Any]],
         pipeline_name: str = 'nextflow_pipeline',
         parameters: Optional[Dict[str, Any]] = None,
-        notes: str = ''
+        notes: str = '',
+        metasub_fields: Optional[Dict[str, Any]] = None
     ) -> Dict[str, Any]:
         """
         Prepare sample upload: create sample, create pipeline run, generate presigned URLs.
-        
+
         Args:
             sample_code: Sample identifier
             sample_type: Type of sample (nanopore, illumina, pacbio)
@@ -331,7 +332,11 @@ class PipelineService:
             pipeline_name: Pipeline name
             parameters: Pipeline parameters
             notes: Sample notes
-            
+            metasub_fields: Optional MetaSUB protocol fields (013_metasub_metadata.sql) -
+                sample_role, object_sampled, surface_material_sampled, traffic_count,
+                temperature_measured, temperature_celsius, humidity_measured,
+                humidity_percent, gps_accuracy_m. Unrecognized keys are ignored.
+
         Returns:
             Dict with upload_urls, sample_id, pipeline_id
         """
@@ -350,11 +355,20 @@ class PipelineService:
         
         # Create sample
         from models.sample import SampleCreate
+        _metasub_allowed = {
+            'sample_role', 'object_sampled', 'surface_material_sampled', 'traffic_count',
+            'temperature_measured', 'temperature_celsius', 'humidity_measured',
+            'humidity_percent', 'gps_accuracy_m'
+        }
+        _metasub_kwargs = {
+            k: v for k, v in (metasub_fields or {}).items() if k in _metasub_allowed
+        }
         sample_create = SampleCreate(
             sample_code=sample_code,
             sample_type=sample_type,
             collection_date=collection_date,
-            notes=notes
+            notes=notes,
+            **_metasub_kwargs
         )
         sample_id = await self.sample_service.create_sample(sample_create)
         

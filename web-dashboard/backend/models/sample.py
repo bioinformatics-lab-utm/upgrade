@@ -46,6 +46,19 @@ class SampleBase(BaseModel):
     notes: Optional[str] = None
     metadata: Optional[dict] = Field(default_factory=dict)
 
+    # MetaSUB protocol fields (013_metasub_metadata.sql) - per-swab, can differ between
+    # two samples taken at the same location_id. sample_role is deliberately NOT named
+    # sample_type - that field already means sequencing platform in this codebase.
+    sample_role: Optional[str] = Field(None, max_length=20, description="experiment, negative_control, positive_control")
+    object_sampled: Optional[str] = Field(None, max_length=100, description="MetaSUB object type/sampling place, e.g. Door, Handrail, Turnstile")
+    surface_material_sampled: Optional[str] = Field(None, max_length=50, description="concrete, ceramic, formica_resin, glass, metal, painted_metal, plastic, pvc, rubber, stone, wood, natural_fabric, synthetic_fabric, other")
+    traffic_count: Optional[str] = Field(None, max_length=10, description="0, 1-10, 11-20, 21-30, 31-40, 41-50, 50+")
+    temperature_measured: Optional[bool] = None
+    temperature_celsius: Optional[Decimal] = None
+    humidity_measured: Optional[bool] = None
+    humidity_percent: Optional[Decimal] = None
+    gps_accuracy_m: Optional[Decimal] = Field(None, description="GPS accuracy in meters for this sampling visit")
+
     model_config = ConfigDict(from_attributes=True)
 
 
@@ -80,6 +93,17 @@ class SampleUpdate(BaseModel):
     barcode: Optional[str] = None
     notes: Optional[str] = None
     metadata: Optional[dict] = None
+
+    # MetaSUB protocol fields - see SampleBase for descriptions
+    sample_role: Optional[str] = None
+    object_sampled: Optional[str] = None
+    surface_material_sampled: Optional[str] = None
+    traffic_count: Optional[str] = None
+    temperature_measured: Optional[bool] = None
+    temperature_celsius: Optional[Decimal] = None
+    humidity_measured: Optional[bool] = None
+    humidity_percent: Optional[Decimal] = None
+    gps_accuracy_m: Optional[Decimal] = None
 
     model_config = ConfigDict(from_attributes=True)
 

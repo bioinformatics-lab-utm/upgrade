@@ -38,18 +38,22 @@ class SampleRepository(BaseRepository[Sample]):
                 sequencing_platform, sequencing_kit, flowcell_type,
                 read_length_avg, sequencing_depth, coverage, quality_score,
                 status, processing_priority, expected_results_date,
-                project_id, batch_id, barcode, notes, metadata
+                project_id, batch_id, barcode, notes, metadata,
+                sample_role, object_sampled, surface_material_sampled, traffic_count,
+                temperature_measured, temperature_celsius, humidity_measured,
+                humidity_percent, gps_accuracy_m
             ) VALUES (
                 $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12,
-                $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24
+                $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24,
+                $25, $26, $27, $28, $29, $30, $31, $32, $33
             )
             RETURNING sample_id
         """
-        
+
         # Serialize metadata to JSON string if present
         import json as json_module
         metadata_json = json_module.dumps(sample_data.metadata) if sample_data.metadata else None
-        
+
         async with self.pool.acquire() as conn:
             sample_id = await conn.fetchval(
                 query,
@@ -76,7 +80,16 @@ class SampleRepository(BaseRepository[Sample]):
                 sample_data.batch_id,
                 sample_data.barcode,
                 sample_data.notes,
-                metadata_json
+                metadata_json,
+                sample_data.sample_role,
+                sample_data.object_sampled,
+                sample_data.surface_material_sampled,
+                sample_data.traffic_count,
+                sample_data.temperature_measured,
+                sample_data.temperature_celsius,
+                sample_data.humidity_measured,
+                sample_data.humidity_percent,
+                sample_data.gps_accuracy_m,
             )
             return sample_id
     
