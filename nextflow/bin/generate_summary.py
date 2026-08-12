@@ -292,6 +292,48 @@ def parse_kraken(results_dir):
     }
 
 
+def parse_kraken_reads(results_dir):
+    """Parse read-based Kraken2 classification (06_kraken2_reads/, from KRAKEN2_READS -
+    runs on filtered reads directly, independent of assembly/binning). Kept separate
+    from parse_kraken()'s bin-based taxonomy.species: this is a single classification
+    call per sample, not a per-bin list, and is the only taxonomy available for
+    low-coverage samples where assembly was skipped."""
+    kraken_reads_dir = Path(results_dir) / "06_kraken2_reads"
+
+    if not kraken_reads_dir.exists():
+        return None
+
+    summary_files = list(kraken_reads_dir.glob("*_reads_kraken2_summary.tsv"))
+    if not summary_files:
+        return None
+
+    with open(summary_files[0]) as f:
+        lines = f.readlines()
+
+    for line in lines[1:]:
+        if not line.strip():
+            continue
+        parts = line.strip().split('\t')
+        if len(parts) < 5:
+            continue
+        taxonomy = parts[1]
+        confidence = float(parts[2]) if parts[2].replace('.', '', 1).isdigit() else 0.0
+        num_reads = int(parts[3]) if parts[3].isdigit() else 0
+        num_reads_clade = int(parts[4]) if parts[4].isdigit() else 0
+
+        if 'failed' in taxonomy.lower() or 'missing' in taxonomy.lower() or 'no classified' in taxonomy.lower():
+            return {'top_taxonomy': None, 'confidence': 0.0, 'num_reads': 0, 'num_reads_clade': 0}
+
+        return {
+            'top_taxonomy': taxonomy,
+            'confidence': confidence,
+            'num_reads': num_reads,
+            'num_reads_clade': num_reads_clade
+        }
+
+    return None
+
+
 def calculate_quality_score(qc, assembly, mags):
     # Calculate overall pipeline quality score (0-100)
     score = 0
@@ -339,6 +381,7 @@ def main():
     mags = parse_checkm(results_dir)
     amr_data, amr_risk = parse_abricate(results_dir)
     taxonomy = parse_kraken(results_dir)
+    taxonomy_reads = parse_kraken_reads(results_dir)
 
     # Calculate scores
     quality_score = calculate_quality_score(qc, assembly, mags)
@@ -364,6 +407,7 @@ def main():
         "mags": mags,
         "amr": amr_data,
         "taxonomy": taxonomy,
+        "taxonomy_reads": taxonomy_reads,
         "recommendations": recommendations
     }
 
