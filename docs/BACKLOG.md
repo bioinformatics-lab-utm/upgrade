@@ -31,7 +31,7 @@
 - [x] **`UPGRADE_BASE_DIR` проверен и добавлен `web-backend`.** Тот же DooD-доступ (`/nextflow:ro` + `docker.sock`) и тот же код (`tasks/pipeline_tasks.py`) через общий bind-mount `/app`, но без переменной — латентный риск, если когда-нибудь появится прямой вызов `execute_nextflow_pipeline` в обход RQ. Добавлено (коммит `9121f0ae`), контейнер пересоздан. Прогонов Nextflow больше нигде в проекте не запускается (только batch-скрипты `scripts/data_processors/*` и тестовые `.sh`, которые уже используют свои собственные вызовы, не через web-backend/rq-worker).
 - [ ] Read-based AMR по-прежнему невозможен (Abricate требует сборку контигов) — постоянное архитектурное ограничение, не баг, но стоит иметь в виду при планировании low-coverage образцов.
 - [x] **MetaSUB API-обвязка сделана.** `models/sample.py` (9 полей в `SampleBase`+`SampleUpdate`), `sample_repository.py` (`INSERT` расширен 24→33 колонки), `pipeline_service.py`/`routes/pipeline_v2.py` (`prepare_upload()` принимает `metasub_fields`, allowlist-фильтр от постороннего/опасного ввода) — коммит `ea6f9e1d`. Проверено сквозь весь путь на живой БД (создание/чтение обратно), не только синтаксис. `web-backend` перезапущен.
-- [ ] **`MetaSUB_metadata_protocol.pdf`** лежит в корне репозитория незакоммиченным — пользователь загрузил для сверки, не уточнили, нужно ли добавлять в git (например, в `docs/`).
+- [x] **`MetaSUB_metadata_protocol.pdf`** — решено не коммитить (возможные авторские права MetaSUB Consortium). Остаётся в корне репозитория незакоммиченным сознательно.
 
 ## P3 — проверено (2026-08-12)
 
