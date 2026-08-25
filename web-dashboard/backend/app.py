@@ -116,6 +116,24 @@ async def setup_db(app, loop):
     except Exception as e:
         logger.warning(f"Redis not available, caching disabled: {e}")
         app.ctx.redis = None
+
+    # Separate sync, binary Redis connection for RQ job-liveness checks in the
+    # stale-pipeline watchdog. RQ's Job/registry API is synchronous and needs
+    # decode_responses=False (binary pickle payloads) — the async caching client
+    # above is unsuitable for this.
+    try:
+        from redis import Redis as SyncRedis
+        app.ctx.rq_redis = SyncRedis(
+            host=config.REDIS_HOST,
+            port=config.REDIS_PORT,
+            password=config.REDIS_PASSWORD,
+            decode_responses=False
+        )
+        app.ctx.rq_redis.ping()
+        logger.info("RQ liveness-check Redis connection initialized")
+    except Exception as e:
+        logger.warning(f"RQ Redis connection not available, watchdog liveness check disabled: {e}")
+        app.ctx.rq_redis = None
     
     # Initialize MinIO client
     minio_client = get_minio_client()
@@ -141,6 +159,31 @@ async def stop_background_tasks(app, loop):
         app.ctx.stale_cleanup_task.cancel()
 
 
+def _is_rq_job_alive(rq_redis, job_id: str) -> bool:
+    """
+    Best-effort liveness check against RQ/Redis directly, instead of trusting
+    pipeline_runs.updated_at (which track_progress() writes to a separate
+    pipeline_progress_events table and never touches — so a legitimately
+    running multi-hour Nextflow stage looks identical in this column to a
+    genuinely dead worker).
+
+    Returns True if RQ still has a live record of the job (don't cancel),
+    False if RQ has no such job or considers it finished/failed (safe to
+    treat as dead).
+    """
+    if not rq_redis or not job_id:
+        return False
+    try:
+        from rq.job import Job, JobStatus
+        job = Job.fetch(job_id, connection=rq_redis)
+        return job.get_status(refresh=True) in (
+            JobStatus.STARTED, JobStatus.QUEUED, JobStatus.DEFERRED, JobStatus.SCHEDULED
+        )
+    except Exception:
+        # NoSuchJobError or any lookup failure: RQ has no record, treat as not alive
+        return False
+
+
 async def cleanup_stale_pipelines(app):
     """Cancel pipelines stuck in 'queued' or 'running' status."""
     while True:
@@ -162,19 +205,45 @@ async def cleanup_stale_pipelines(app):
                     ids = [r['pipeline_id'] for r in queued]
                     logger.warning(f"Auto-cancelled {len(queued)} stale queued pipelines: {ids}")
 
-                # Running with no update for >4 hours: worker died or was killed
-                running = await conn.fetch("""
-                    UPDATE pipeline_runs
-                    SET status = 'failed',
-                        error_message = 'Auto-cancelled: no progress for 4+ hours (worker likely crashed)',
-                        completed_at = CURRENT_TIMESTAMP
+                # Running with no DB update for >48 hours: candidates only.
+                # Real legitimate runs are documented at 2-32h, and updated_at
+                # doesn't move during a long Nextflow stage, so time alone is
+                # not sufficient evidence of a dead worker — confirm against
+                # RQ's own job state before cancelling anything.
+                candidates = await conn.fetch("""
+                    SELECT pipeline_id, job_id
+                    FROM pipeline_runs
                     WHERE status = 'running'
-                      AND updated_at < NOW() - INTERVAL '4 hours'
-                    RETURNING pipeline_id
+                      AND updated_at < NOW() - INTERVAL '48 hours'
                 """)
-                if running:
-                    ids = [r['pipeline_id'] for r in running]
-                    logger.warning(f"Auto-cancelled {len(running)} stuck running pipelines: {ids}")
+
+                dead_ids = []
+                alive_ids = []
+                for row in candidates:
+                    is_alive = await asyncio.to_thread(
+                        _is_rq_job_alive, app.ctx.rq_redis, row['job_id']
+                    )
+                    (alive_ids if is_alive else dead_ids).append(row['pipeline_id'])
+
+                if alive_ids:
+                    logger.info(
+                        f"Watchdog: {len(alive_ids)} pipeline(s) past 48h with stale "
+                        f"updated_at but RQ reports the job still alive, not cancelling: {alive_ids}"
+                    )
+
+                if dead_ids:
+                    running = await conn.fetch("""
+                        UPDATE pipeline_runs
+                        SET status = 'failed',
+                            error_message = 'Auto-cancelled: no progress for 48+ hours and RQ has no live job record (worker likely crashed)',
+                            completed_at = CURRENT_TIMESTAMP
+                        WHERE pipeline_id = ANY($1::int[])
+                          AND status = 'running'
+                        RETURNING pipeline_id
+                    """, dead_ids)
+                    if running:
+                        ids = [r['pipeline_id'] for r in running]
+                        logger.warning(f"Auto-cancelled {len(running)} stuck running pipelines: {ids}")
         except asyncio.CancelledError:
             break
         except Exception as e:
@@ -188,6 +257,9 @@ async def close_db(app, loop):
     if app.ctx.redis:
         await app.ctx.redis.close()
         logger.info("Redis connection closed")
+    if getattr(app.ctx, 'rq_redis', None):
+        app.ctx.rq_redis.close()
+        logger.info("RQ Redis connection closed")
     logger.info("Database pool closed")
 
 

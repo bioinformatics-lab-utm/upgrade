@@ -296,7 +296,7 @@ services:
       - REDIS_PORT=${REDIS_PORT}
       - REDIS_PASSWORD=${REDIS_PASSWORD}
       - RQ_QUEUE_NAME=pipeline-queue
-      - RQ_JOB_TIMEOUT=43200
+      - RQ_JOB_TIMEOUT=172800
       - DOCKER_UID=1000
       - DOCKER_GID=988
       - WORK_DIR=/tmp/nf-work
