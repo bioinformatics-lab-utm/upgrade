@@ -1,16 +1,21 @@
 import React, { useState } from 'react';
-import { useNavigate, Link } from 'react-router-dom';
+import { useNavigate, Link, useSearchParams } from 'react-router-dom';
 import apiConfig from '../config/api';
+import ResendVerificationButton from './ResendVerificationButton';
 import './Auth.css';
 
-function Login() {
+function Login({ onLogin }) {
   const [formData, setFormData] = useState({
     username: '',
     password: ''
   });
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+  // Username of an account that signed in correctly but has not confirmed its email
+  const [unverifiedUser, setUnverifiedUser] = useState('');
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  const justVerified = searchParams.get('verified') === '1';
 
   const handleChange = (e) => {
     setFormData({
@@ -23,6 +28,7 @@ function Login() {
   const handleSubmit = async (e) => {
     e.preventDefault();
     setError('');
+    setUnverifiedUser('');
     setLoading(true);
 
     try {
@@ -40,11 +46,16 @@ function Login() {
         // Save token to localStorage
         localStorage.setItem('token', data.token);
         localStorage.setItem('user', JSON.stringify(data.user));
-        
+        // Let the app shell show the signed-in header without a page reload
+        onLogin?.(data.user, data.token);
+
         // Redirect to main page
         navigate('/');
       } else {
         setError(data.error || 'Login failed');
+        if (data.code === 'email_not_verified') {
+          setUnverifiedUser(formData.username);
+        }
       }
     } catch (err) {
       setError('Network error. Please check if backend is running.');
@@ -81,6 +92,15 @@ function Login() {
         </div>
 
         <form onSubmit={handleSubmit} className="auth-form">
+          {justVerified && !error && (
+            <div className="alert alert-success">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                <polyline points="20 6 9 17 4 12" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+              </svg>
+              Email confirmed. You can sign in now.
+            </div>
+          )}
+
           {error && (
             <div className="alert alert-error">
               <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor">
@@ -90,6 +110,10 @@ function Login() {
               </svg>
               {error}
             </div>
+          )}
+
+          {unverifiedUser && (
+            <ResendVerificationButton key={unverifiedUser} identifier={unverifiedUser} />
           )}
 
           <div className="form-group">

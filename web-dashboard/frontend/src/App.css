@@ -234,7 +234,7 @@ button, a {
   padding: 0 var(--space-2xl);
   display: flex;
   align-items: center;
-  gap: var(--space-2xl);
+  gap: var(--space-xl);
 }
 
 /* Brand Section */
@@ -242,6 +242,8 @@ button, a {
   display: flex;
   align-items: center;
   gap: var(--space-md);
+  flex-shrink: 0;
+  text-decoration: none;
   cursor: pointer;
   transition: transform var(--transition-base);
 }
@@ -288,24 +290,6 @@ button, a {
   font-family: var(--font-display) !important;
 }
 
-.brand-subtitle {
-  font-size: var(--font-size-xs);
-  color: var(--text-secondary);
-  font-weight: 700;
-  letter-spacing: 0.8px;
-  text-transform: uppercase;
-  display: flex;
-  align-items: center;
-  gap: var(--space-xs);
-  margin-top: var(--space-xs);
-  font-family: var(--font-body) !important;
-}
-
-.subtitle-icon {
-  font-size: var(--font-size-sm);
-  animation: spin 10s linear infinite;
-}
-
 @keyframes spin {
   from { transform: rotate(0deg); }
   to { transform: rotate(360deg); }
@@ -321,6 +305,8 @@ button, a {
   border: 1px solid var(--border-primary);
   border-radius: var(--radius-full);
   margin-left: auto;
+  flex-shrink: 0;
+  white-space: nowrap;
 }
 
 .status-item {
@@ -393,6 +379,7 @@ button, a {
   display: flex;
   align-items: center;
   gap: var(--space-sm);
+  flex-shrink: 0;
 }
 
 .nav-link {
@@ -409,6 +396,7 @@ button, a {
   position: relative;
   overflow: hidden;
   cursor: pointer;
+  white-space: nowrap;
 }
 
 .nav-link::before {
@@ -441,6 +429,7 @@ button, a {
 }
 
 .nav-link-icon {
+  flex-shrink: 0;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -496,6 +485,7 @@ button, a {
   align-items: center;
   gap: var(--space-md);
   margin-left: auto;
+  flex-shrink: 0;
 }
 
 .action-btn {
@@ -576,7 +566,7 @@ button, a {
   position: relative;
   z-index: var(--z-base);
   overflow-y: auto;
-  padding: var(--space-2xl);
+  padding: var(--space-lg) var(--space-2xl) var(--space-2xl);
 }
 
 .content-wrapper {
@@ -635,6 +625,50 @@ button, a {
 /* ===================================================================
    RESPONSIVE DESIGN
    =================================================================== */
+@media (max-width: 1880px) {
+  .nav-container {
+    gap: var(--space-lg);
+  }
+
+  .nav-link-desc {
+    display: none;
+  }
+
+  .nav-link {
+    padding: var(--space-sm) var(--space-md);
+  }
+}
+
+@media (max-width: 1560px) {
+  .nav-container {
+    gap: var(--space-md);
+  }
+
+  .system-status {
+    gap: var(--space-sm);
+    padding: var(--space-sm) var(--space-md);
+  }
+
+  .nav-link {
+    gap: var(--space-sm);
+    padding: var(--space-sm);
+  }
+
+  .nav-actions {
+    gap: var(--space-sm);
+  }
+
+  .user-profile {
+    margin-left: 0;
+  }
+}
+
+@media (max-width: 1400px) {
+  .system-status {
+    display: none;
+  }
+}
+
 @media (max-width: 1280px) {
   :root {
     --space-2xl: 32px;
@@ -656,10 +690,6 @@ button, a {
   
   .nav-link {
     padding: var(--space-md);
-  }
-  
-  .brand-subtitle {
-    display: none;
   }
 }
 

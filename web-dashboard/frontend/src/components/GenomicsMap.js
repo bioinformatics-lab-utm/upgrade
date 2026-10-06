@@ -52,6 +52,11 @@ const GenomicsMap = () => {
     <div className="genomics-map-container">
       {/* Header Stats */}
       <div className="map-header">
+        <h2 className="map-title">
+          <span className="map-title-icon">⚛</span>
+          Urban Pathogen Genomic Surveillance Platform
+        </h2>
+
         <div className="map-stats">
           <div className="stat-card">
             <div className="stat-value">{stats.totalSamples}</div>

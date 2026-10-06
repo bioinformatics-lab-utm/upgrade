@@ -8,14 +8,32 @@
 /* Header with Stats */
 .map-header {
   background: linear-gradient(to bottom, #ffffff 0%, #fafbfc 100%);
-  padding: 24px 40px;
+  padding: 20px 32px;
   border-bottom: 1px solid #edf2f7;
   display: flex;
   justify-content: space-between;
   align-items: center;
   flex-wrap: wrap;
-  gap: 24px;
+  gap: 16px 24px;
   box-shadow: 0 2px 8px rgba(0,0,0,0.04);
+}
+
+.map-title {
+  flex-basis: 100%;
+  margin: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 14px;
+  font-weight: 700;
+  letter-spacing: 1.2px;
+  text-transform: uppercase;
+  color: #475569;
+}
+
+.map-title-icon {
+  font-size: 16px;
+  color: #0052ff;
 }
 
 .map-header-left {

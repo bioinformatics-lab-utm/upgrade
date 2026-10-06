@@ -7,7 +7,8 @@ import bcrypt
 import os
 import sys
 import secrets
-from datetime import datetime, timedelta
+import hashlib
+from datetime import datetime, timedelta, timezone
 from functools import wraps
 from sanic.response import json
 from sanic.exceptions import Unauthorized
@@ -232,7 +233,8 @@ async def authenticate_user(conn, username: str, password: str):
         User dict if successful, None if authentication fails
     """
     query = """
-        SELECT user_id, username, email, password_hash, first_name, last_name, is_active
+        SELECT user_id, username, email, password_hash, first_name, last_name, is_active,
+               email_verified
         FROM users
         WHERE username = $1 AND is_active = true
     """
@@ -257,7 +259,8 @@ async def authenticate_user(conn, username: str, password: str):
         'user_id': user['user_id'],
         'username': user['username'],
         'email': user['email'],
-        'full_name': full_name
+        'full_name': full_name,
+        'email_verified': user['email_verified'],
     }
 
 
@@ -295,3 +298,98 @@ async def update_last_login(conn, user_id: int):
     )
 
 
+# Email verification
+EMAIL_VERIFICATION_TTL_HOURS = 24
+
+
+def _hash_verification_token(token: str) -> str:
+    """Only the SHA-256 digest is stored, so a DB leak cannot confirm accounts."""
+    return hashlib.sha256(token.encode('utf-8')).hexdigest()
+
+
+async def create_email_verification_token(conn, user_id: int) -> str:
+    """
+    Issue a new single-use verification token for user, replacing any unused ones.
+
+    Returns:
+        The raw token to put in the confirmation link
+    """
+    token = secrets.token_urlsafe(32)
+    async with conn.transaction():
+        await conn.execute(
+            "DELETE FROM email_verification_tokens WHERE user_id = $1 AND used_at IS NULL",
+            user_id
+        )
+        await conn.execute(
+            """
+            INSERT INTO email_verification_tokens (user_id, token, expires_at)
+            VALUES ($1, $2, $3)
+            """,
+            user_id,
+            _hash_verification_token(token),
+            datetime.now(timezone.utc) + timedelta(hours=EMAIL_VERIFICATION_TTL_HOURS)
+        )
+    return token
+
+
+async def verify_email_token(conn, token: str) -> tuple[str, dict | None]:
+    """
+    Consume a verification token and mark the user's email as verified.
+
+    Returns:
+        (status, user) where status is one of:
+        'verified', 'already_verified', 'expired', 'invalid'
+    """
+    async with conn.transaction():
+        row = await conn.fetchrow(
+            """
+            SELECT t.token_id, t.expires_at, t.used_at,
+                   u.user_id, u.username, u.email, u.email_verified
+            FROM email_verification_tokens t
+            JOIN users u ON u.user_id = t.user_id
+            WHERE t.token = $1
+            FOR UPDATE OF t
+            """,
+            _hash_verification_token(token)
+        )
+
+        if not row:
+            return 'invalid', None
+
+        user = {'user_id': row['user_id'], 'username': row['username'], 'email': row['email']}
+
+        if row['used_at'] is not None or row['email_verified']:
+            return 'already_verified', user
+
+        if row['expires_at'] < datetime.now(timezone.utc):
+            return 'expired', user
+
+        await conn.execute(
+            "UPDATE email_verification_tokens SET used_at = CURRENT_TIMESTAMP WHERE token_id = $1",
+            row['token_id']
+        )
+        await conn.execute(
+            """
+            UPDATE users
+            SET email_verified = true, email_verified_at = CURRENT_TIMESTAMP
+            WHERE user_id = $1
+            """,
+            row['user_id']
+        )
+
+    logger.info(f"Email verified for user {row['username']} (ID: {row['user_id']})")
+    return 'verified', user
+
+
+async def get_unverified_user(conn, identifier: str):
+    """Find an active, not-yet-verified user by username or email."""
+    return await conn.fetchrow(
+        """
+        SELECT user_id, username, email
+        FROM users
+        WHERE (username = $1 OR email = lower($1))
+          AND is_active = true
+          AND email_verified = false
+        """,
+        identifier
+    )

@@ -7,6 +7,7 @@ import PipelineResultsDashboard from './components/PipelineResultsDashboard';
 import PipelineMonitor from './components/PipelineMonitor';
 import Login from './components/Login';
 import Register from './components/Register';
+import VerifyEmail from './components/VerifyEmail';
 import ErrorBoundary from './components/ErrorBoundary';
 import API from './config/api';
 import 'leaflet/dist/leaflet.css';
@@ -65,7 +66,7 @@ function App() {
   };
 
   // Hide navigation on auth pages
-  const isAuthPage = location.pathname === '/login' || location.pathname === '/register';
+  const isAuthPage = ['/login', '/register', '/verify-email'].includes(location.pathname);
 
   return (
     <div className="app">
@@ -73,7 +74,7 @@ function App() {
       {!isAuthPage && (
         <nav className={`app-nav ${isScrolled ? 'scrolled' : ''}`}>
         <div className="nav-container">
-          <div className="app-brand">
+          <Link to="/" className="app-brand" title="Home">
             <div className="brand-logo">
               <svg width="40" height="40" viewBox="0 0 40 40" fill="none" xmlns="http://www.w3.org/2000/svg">
                 <defs>
@@ -109,12 +110,8 @@ function App() {
             </div>
             <div className="brand-text">
               <h1>UPGRADE</h1>
-              <span className="brand-subtitle">
-                <span className="subtitle-icon">⚛</span>
-                Urban Pathogen Genomic Surveillance Platform
-              </span>
             </div>
-          </div>
+          </Link>
 
           {/* System Status Indicator */}
           <div className="system-status">
@@ -233,8 +230,11 @@ function App() {
       <main className="app-content">
         <div className="content-wrapper">
           <Routes>
-            <Route path="/login" element={<Login onLogin={handleLogin} />} />
+            <Route path="/login" element={
+              localStorage.getItem('token') ? <Navigate to="/" replace /> : <Login onLogin={handleLogin} />
+            } />
             <Route path="/register" element={<Register onLogin={handleLogin} />} />
+            <Route path="/verify-email" element={<VerifyEmail />} />
             <Route path="/" element={
               <ProtectedRoute>
                 <GenomicsMap />

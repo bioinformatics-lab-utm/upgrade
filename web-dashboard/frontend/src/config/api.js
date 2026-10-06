@@ -12,6 +12,8 @@ export default {
       login: `${API_BASE_URL}/api/auth/login`,
       me: `${API_BASE_URL}/api/auth/me`,
       verify: `${API_BASE_URL}/api/auth/verify`,
+      verifyEmail: `${API_BASE_URL}/api/auth/verify-email`,
+      resendVerification: `${API_BASE_URL}/api/auth/resend-verification`,
     },
     pipeline: {
       submit: `${API_BASE_URL}/api/pipeline/submit`,

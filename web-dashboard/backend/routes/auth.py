@@ -15,7 +15,11 @@ from auth import (
     protected,
     get_user_by_id,
     update_last_login,
+    create_email_verification_token,
+    verify_email_token,
+    get_unverified_user,
 )
+from services.email_service import send_verification_email, EmailSendError
 
 # Rate limiting to prevent brute-force attacks
 from rate_limiter import rate_limit
@@ -77,16 +81,19 @@ async def register(request):
             "full_name": "John Doe" (optional)
         }
     
+    The account cannot sign in until the email is confirmed via the link
+    sent by email. No JWT is issued here.
+
     Response:
         {
             "success": true,
-            "message": "User registered successfully",
+            "message": "Account created. Check your email to confirm it.",
             "user": {
                 "user_id": 1,
                 "username": "johndoe",
                 "email": "john@example.com"
             },
-            "token": "eyJ0eXAiOiJKV1QiLCJhbGc..."
+            "email_sent": true
         }
     """
     try:
@@ -121,23 +128,31 @@ async def register(request):
             if not user_id:
                 raise BadRequest("Username or email already exists")
 
-            await update_last_login(conn, user_id)
+            verification_token = await create_email_verification_token(conn, user_id)
 
-        # Generate JWT token
-        token = generate_token(user_id, username, email)
-        
         logger.info(f"New user registered: {username} (ID: {user_id})")
-        
+
+        # The account exists even if the email fails; the user can request a resend
+        email_sent = True
+        try:
+            await send_verification_email(email, username, verification_token)
+        except EmailSendError as e:
+            email_sent = False
+            logger.error(f"Could not send verification email to user {username} (ID: {user_id}): {e}")
+
         return json({
             'success': True,
-            'message': 'User registered successfully',
+            'message': (
+                'Account created. Check your email to confirm it.' if email_sent
+                else 'Account created, but the confirmation email could not be sent. Please request a new one.'
+            ),
             'user': {
                 'user_id': user_id,
                 'username': username,
                 'email': email,
                 'full_name': full_name,
             },
-            'token': token
+            'email_sent': email_sent
         }, status=201)
         
     except BadRequest as e:
@@ -189,7 +204,15 @@ async def login(request):
             
             if not user:
                 raise Unauthorized("Invalid username or password")
-            
+
+            if not user['email_verified']:
+                logger.warning(f"Login blocked: email not verified - {username}")
+                return json({
+                    'success': False,
+                    'error': 'Please confirm your email address before signing in. Check your inbox for the confirmation link.',
+                    'code': 'email_not_verified'
+                }, status=403)
+
             # Update last login
             await update_last_login(conn, user['user_id'])
         
@@ -282,4 +305,76 @@ async def verify_token(request):
     })
 
 
+@auth_bp.route('/verify-email', methods=['POST'])
+@rate_limit("10/minute", error_message="Too many attempts. Please try again in a minute.")
+async def verify_email(request):
+    """
+    Confirm an email address using the token from the confirmation link
 
+    Request body:
+        {"token": "<token from the link>"}
+
+    Response:
+        {"success": true, "status": "verified" | "already_verified"}
+        {"success": false, "status": "expired" | "invalid", "error": "..."}
+    """
+    try:
+        token = ((request.json or {}).get('token') or '').strip()
+        if not token:
+            return json({'success': False, 'status': 'invalid', 'error': 'Missing confirmation token'}, status=400)
+
+        async with request.app.ctx.db_pool.acquire() as conn:
+            status, _ = await verify_email_token(conn, token)
+
+        if status in ('verified', 'already_verified'):
+            return json({'success': True, 'status': status})
+
+        errors = {
+            'expired': 'This confirmation link has expired. Request a new one from the sign-in page.',
+            'invalid': 'This confirmation link is invalid.',
+        }
+        return json({'success': False, 'status': status, 'error': errors[status]}, status=400)
+
+    except Exception as e:
+        logger.error(f"Email verification error: {e}", exc_info=True)
+        return json({'success': False, 'error': 'Internal server error'}, status=500)
+
+
+@auth_bp.route('/resend-verification', methods=['POST'])
+@rate_limit("3/minute", error_message="Too many requests. Please try again in a minute.")
+async def resend_verification(request):
+    """
+    Send a new confirmation email
+
+    Request body:
+        {"identifier": "<username or email>"}
+
+    Always answers with the same message so it cannot be used to discover
+    which accounts exist.
+    """
+    generic = {
+        'success': True,
+        'message': 'If an unconfirmed account matches, a new confirmation email has been sent.'
+    }
+    try:
+        identifier = ((request.json or {}).get('identifier') or '').strip()
+        if not identifier:
+            return json({'success': False, 'error': 'Username or email is required'}, status=400)
+
+        async with request.app.ctx.db_pool.acquire() as conn:
+            user = await get_unverified_user(conn, identifier)
+            if not user:
+                return json(generic)
+            token = await create_email_verification_token(conn, user['user_id'])
+
+        try:
+            await send_verification_email(user['email'], user['username'], token)
+        except EmailSendError as e:
+            logger.error(f"Could not resend verification email to user {user['username']}: {e}")
+            return json({'success': False, 'error': 'Could not send the email. Please try again later.'}, status=502)
+
+        return json(generic)
+
+    except Exception as e:
+        logger.error(f"Resend verification error: {e}", exc_info=True)
+        return json({'success': False, 'error': 'Internal server error'}, status=500)

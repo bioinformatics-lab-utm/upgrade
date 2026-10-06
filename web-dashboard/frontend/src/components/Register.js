@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
-import { useNavigate, Link } from 'react-router-dom';
+import { Link } from 'react-router-dom';
 import apiConfig from '../config/api';
+import ResendVerificationButton from './ResendVerificationButton';
 import './Auth.css';
 
 function Register() {
@@ -14,7 +15,8 @@ function Register() {
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const [passwordStrength, setPasswordStrength] = useState('');
-  const navigate = useNavigate();
+  // Set after a successful signup: { username, email, emailSent }
+  const [registered, setRegistered] = useState(null);
 
   const checkPasswordStrength = (password) => {
     if (!password) return '';
@@ -121,12 +123,12 @@ function Register() {
       const data = await response.json();
 
       if (response.ok && data.success) {
-        // Save token to localStorage
-        localStorage.setItem('token', data.token);
-        localStorage.setItem('user', JSON.stringify(data.user));
-        
-        // Redirect to main page
-        navigate('/');
+        // No session yet: the account must be confirmed via the emailed link
+        setRegistered({
+          username: data.user.username,
+          email: data.user.email,
+          emailSent: data.email_sent
+        });
       } else {
         setError(data.error || 'Registration failed');
       }
@@ -137,6 +139,37 @@ function Register() {
       setLoading(false);
     }
   };
+
+  if (registered) {
+    return (
+      <div className="auth-container">
+        <div className="auth-card auth-status">
+          <div className="auth-status-icon info">
+            <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+              <rect x="2" y="4" width="20" height="16" rx="2" strokeWidth="2"/>
+              <polyline points="22 6 12 13 2 6" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+            </svg>
+          </div>
+          <h1>Check your email</h1>
+          {registered.emailSent ? (
+            <p>
+              We sent a confirmation link to <strong>{registered.email}</strong>.
+              Open it to activate your account. The link expires in 24 hours.
+            </p>
+          ) : (
+            <div className="alert alert-error">
+              Your account was created, but we could not send the confirmation email.
+              Use the button below to try again.
+            </div>
+          )}
+          <ResendVerificationButton identifier={registered.email} />
+          <div className="auth-footer">
+            <p>Already confirmed? <Link to="/login">Sign in</Link></p>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="auth-container">
