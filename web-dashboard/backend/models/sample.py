@@ -64,7 +64,8 @@ class SampleBase(BaseModel):
 
 class SampleCreate(SampleBase):
     """Schema for creating a new sample."""
-    pass
+
+    owner_id: int = Field(..., description="User who submits the sample and owns its data")
 
 
 class SampleUpdate(BaseModel):

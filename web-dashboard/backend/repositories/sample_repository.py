@@ -41,11 +41,11 @@ class SampleRepository(BaseRepository[Sample]):
                 project_id, batch_id, barcode, notes, metadata,
                 sample_role, object_sampled, surface_material_sampled, traffic_count,
                 temperature_measured, temperature_celsius, humidity_measured,
-                humidity_percent, gps_accuracy_m
+                humidity_percent, gps_accuracy_m, owner_id
             ) VALUES (
                 $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12,
                 $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24,
-                $25, $26, $27, $28, $29, $30, $31, $32, $33
+                $25, $26, $27, $28, $29, $30, $31, $32, $33, $34
             )
             RETURNING sample_id
         """
@@ -90,6 +90,7 @@ class SampleRepository(BaseRepository[Sample]):
                 sample_data.humidity_measured,
                 sample_data.humidity_percent,
                 sample_data.gps_accuracy_m,
+                sample_data.owner_id,
             )
             return sample_id
     

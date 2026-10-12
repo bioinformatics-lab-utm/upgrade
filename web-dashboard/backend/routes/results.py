@@ -12,7 +12,10 @@ from functools import lru_cache
 
 logger = logging.getLogger(__name__)
 
+from functools import wraps
+
 from auth import protected
+from authz import current_user_id, user_owns_run_ref
 
 results_bp = Blueprint('results', url_prefix='/api/pipeline/results')
 
@@ -69,6 +72,18 @@ def invalidate_file_cache(run_id: str = None):
         _file_listing_cache = {}
 
 
+def require_run_owner(handler):
+    """Answer 404 unless the authenticated user owns the run addressed by run_id."""
+    @wraps(handler)
+    async def wrapper(request, run_id, *args, **kwargs):
+        async with request.app.ctx.db_pool.acquire() as conn:
+            owned = await user_owns_run_ref(conn, current_user_id(request), run_id)
+        if not owned:
+            return json({'error': 'Run not found'}, status=404)
+        return await handler(request, run_id, *args, **kwargs)
+    return wrapper
+
+
 def format_file_size(size_bytes):
     """Format file size in human-readable format"""
     for unit in ['B', 'KB', 'MB', 'GB']:
@@ -121,18 +136,20 @@ async def list_runs(request):
         # Get pipeline runs from database
         async with db_pool.acquire() as conn:
             db_runs = await conn.fetch("""
-                SELECT 
-                    pipeline_id,
-                    sample_name,
-                    status,
-                    location,
-                    results_path,
-                    started_at,
-                    completed_at,
-                    error_message
-                FROM pipeline_runs
-                ORDER BY started_at DESC
-            """)
+                SELECT
+                    pr.pipeline_id,
+                    pr.sample_name,
+                    pr.status,
+                    pr.location,
+                    pr.results_path,
+                    pr.started_at,
+                    pr.completed_at,
+                    pr.error_message
+                FROM pipeline_runs pr
+                JOIN samples s ON s.sample_id = pr.sample_id
+                WHERE s.owner_id = $1
+                ORDER BY pr.started_at DESC
+            """, current_user_id(request))
         
         # Create lookup by sample_name and results directory
         runs_by_name = {row['sample_name']: row for row in db_runs}
@@ -158,17 +175,14 @@ async def list_runs(request):
                     sample_name = run_dir.name
                     db_run = runs_by_path.get(run_dir.name) or runs_by_name.get(run_dir.name)
                     
-                    # Use database status if available, otherwise infer from filesystem
-                    if db_run:
-                        status = db_run['status']
-                        date = db_run['started_at'].isoformat() if db_run['started_at'] else datetime.fromtimestamp(run_dir.stat().st_mtime).isoformat()
-                        location = db_run['location']
-                        error_message = db_run['error_message']
-                    else:
-                        status = 'completed'  # Assume completed if in results dir but not in DB
-                        date = datetime.fromtimestamp(run_dir.stat().st_mtime).isoformat()
-                        location = None
-                        error_message = None
+                    # Directories without one of the user's runs belong to someone else
+                    if not db_run:
+                        continue
+
+                    status = db_run['status']
+                    date = db_run['started_at'].isoformat() if db_run['started_at'] else datetime.fromtimestamp(run_dir.stat().st_mtime).isoformat()
+                    location = db_run['location']
+                    error_message = db_run['error_message']
                     
                     runs.append({
                         'id': run_dir.name,
@@ -192,6 +206,7 @@ async def list_runs(request):
 
 @results_bp.route('/<run_id>/files')
 @protected
+@require_run_owner
 async def list_run_files(request, run_id):
     """List all files in a specific run - OPTIMIZED with caching"""
     try:
@@ -217,6 +232,7 @@ async def list_run_files(request, run_id):
 
 @results_bp.route('/<run_id>/view')
 @protected
+@require_run_owner
 async def view_file(request, run_id):
     """View a file (HTML, text, images) in browser"""
     try:
@@ -267,6 +283,7 @@ async def view_file(request, run_id):
 
 @results_bp.route('/<run_id>/download')
 @protected
+@require_run_owner
 async def download_file(request, run_id):
     """Download a file"""
     try:
@@ -296,6 +313,7 @@ async def download_file(request, run_id):
 
 @results_bp.route('/<run_id>/summary')
 @protected
+@require_run_owner
 async def get_run_summary(request, run_id):
     """Get summary statistics for a run"""
     try:
@@ -369,6 +387,7 @@ async def get_run_summary(request, run_id):
 
 @results_bp.route('/<run_id>/pipeline-summary')
 @protected
+@require_run_owner
 async def get_pipeline_summary(request, run_id):
     """Get aggregated pipeline summary — built from MinIO Silver files."""
     import json as json_module
@@ -727,6 +746,7 @@ async def get_pipeline_summary(request, run_id):
 
 @results_bp.route('/<run_id>/pipeline-qc')
 @protected
+@require_run_owner
 async def get_qc_metrics(request, run_id):
     """Get QC metrics only"""
     try:
@@ -748,6 +768,7 @@ async def get_qc_metrics(request, run_id):
 
 @results_bp.route('/<run_id>/pipeline-assembly')
 @protected
+@require_run_owner
 async def get_assembly_metrics(request, run_id):
     """Get assembly metrics only"""
     try:
@@ -769,6 +790,7 @@ async def get_assembly_metrics(request, run_id):
 
 @results_bp.route('/<run_id>/pipeline-amr')
 @protected
+@require_run_owner
 async def get_amr_analysis(request, run_id):
     """Get AMR analysis only"""
     try:
@@ -790,6 +812,7 @@ async def get_amr_analysis(request, run_id):
 
 @results_bp.route('/<run_id>/pipeline-taxonomy')
 @protected
+@require_run_owner
 async def get_taxonomy(request, run_id):
     """Get taxonomy results only"""
     try:
@@ -811,6 +834,7 @@ async def get_taxonomy(request, run_id):
 
 @results_bp.route('/<run_id>/pipeline-mags')
 @protected
+@require_run_owner
 async def get_mags_quality(request, run_id):
     """Get MAG quality assessment only"""
     try:

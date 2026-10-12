@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
+import { createPortal } from 'react-dom';
 import { useParams, useNavigate } from 'react-router-dom';
 import './PipelineMonitor.css';
 import api from '../services/api';
@@ -22,7 +23,7 @@ const PipelineMonitor = ({ pipelineId: propPipelineId, onClose: propOnClose }) =
   const [autoRefresh, setAutoRefresh] = useState(true);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
-  const logEndRef = useRef(null);
+  const logViewerRef = useRef(null);
 
   // Load pipeline status
   const loadStatus = async () => {
@@ -49,9 +50,10 @@ const PipelineMonitor = ({ pipelineId: propPipelineId, onClose: propOnClose }) =
     }
   };
 
-  // Auto-scroll to bottom of log
+  // Auto-scroll the log viewer only (scrollIntoView would also scroll the modal body)
   const scrollToBottom = () => {
-    logEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    const el = logViewerRef.current;
+    if (el) el.scrollTop = el.scrollHeight;
   };
 
   useEffect(() => {
@@ -74,29 +76,31 @@ const PipelineMonitor = ({ pipelineId: propPipelineId, onClose: propOnClose }) =
   }, [log]);
 
   if (loading) {
-    return (
+    return createPortal(
       <div className="pipeline-monitor-overlay">
         <div className="pipeline-monitor">
           <div className="monitor-loading">Loading pipeline status...</div>
         </div>
-      </div>
+      </div>,
+      document.body
     );
   }
 
   if (error) {
-    return (
+    return createPortal(
       <div className="pipeline-monitor-overlay">
         <div className="pipeline-monitor">
           <div className="monitor-error">Error: {error}</div>
           <button onClick={onClose} className="btn-close">Close</button>
         </div>
-      </div>
+      </div>,
+      document.body
     );
   }
 
   const { summary, progress, processes, tasks } = status || {};
 
-  return (
+  return createPortal(
     <div className="pipeline-monitor-overlay" onClick={onClose}>
       <div className="pipeline-monitor" onClick={(e) => e.stopPropagation()}>
         <div className="monitor-header">
@@ -115,6 +119,7 @@ const PipelineMonitor = ({ pipelineId: propPipelineId, onClose: propOnClose }) =
           </div>
         </div>
 
+        <div className="monitor-body">
         {/* Progress Summary */}
         {summary && (
           <div className="progress-summary">
@@ -192,9 +197,8 @@ const PipelineMonitor = ({ pipelineId: propPipelineId, onClose: propOnClose }) =
               <button onClick={loadLog} className="btn-refresh-log">↻</button>
             </div>
           </div>
-          <div className="log-viewer">
+          <div className="log-viewer" ref={logViewerRef}>
             <pre className="log-content">{log || 'No logs available yet...'}</pre>
-            <div ref={logEndRef} />
           </div>
         </div>
 
@@ -236,8 +240,10 @@ const PipelineMonitor = ({ pipelineId: propPipelineId, onClose: propOnClose }) =
             </div>
           </div>
         )}
+        </div>
       </div>
-    </div>
+    </div>,
+    document.body
   );
 };
 

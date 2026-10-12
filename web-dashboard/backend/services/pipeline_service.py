@@ -227,14 +227,17 @@ class PipelineService:
         
         return [PipelineRun(**row) for row in rows]
     
-    async def get_statistics(self) -> Dict[str, Any]:
+    async def get_statistics(self, owner_id: Optional[int] = None) -> Dict[str, Any]:
         """
         Get pipeline run statistics.
-        
+
+        Args:
+            owner_id: Only count runs of this user's samples
+
         Returns:
             Dictionary with statistics by status
         """
-        return await self.pipeline_repo.get_statistics()
+        return await self.pipeline_repo.get_statistics(owner_id)
     
     async def count_by_status(self, status: str) -> int:
         """
@@ -319,7 +322,9 @@ class PipelineService:
         pipeline_name: str = 'nextflow_pipeline',
         parameters: Optional[Dict[str, Any]] = None,
         notes: str = '',
-        metasub_fields: Optional[Dict[str, Any]] = None
+        metasub_fields: Optional[Dict[str, Any]] = None,
+        location_id: Optional[int] = None,
+        owner_id: Optional[int] = None
     ) -> Dict[str, Any]:
         """
         Prepare sample upload: create sample, create pipeline run, generate presigned URLs.
@@ -336,6 +341,8 @@ class PipelineService:
                 sample_role, object_sampled, surface_material_sampled, traffic_count,
                 temperature_measured, temperature_celsius, humidity_measured,
                 humidity_percent, gps_accuracy_m. Unrecognized keys are ignored.
+            location_id: City the sample was collected in (locations table) - places it on the map
+            owner_id: User submitting the sample; only they can access it and its results
 
         Returns:
             Dict with upload_urls, sample_id, pipeline_id
@@ -363,11 +370,21 @@ class PipelineService:
         _metasub_kwargs = {
             k: v for k, v in (metasub_fields or {}).items() if k in _metasub_allowed
         }
+        temperature = _metasub_kwargs.get('temperature_celsius')
+        if temperature is not None:
+            try:
+                temperature = float(temperature)
+            except (TypeError, ValueError):
+                raise ValueError('temperature_celsius must be a number')
+            if not -60 <= temperature <= 80:
+                raise ValueError('temperature_celsius must be between -60 and 80')
         sample_create = SampleCreate(
             sample_code=sample_code,
             sample_type=sample_type,
             collection_date=collection_date,
             notes=notes,
+            location_id=location_id,
+            owner_id=owner_id,
             **_metasub_kwargs
         )
         sample_id = await self.sample_service.create_sample(sample_create)
@@ -587,6 +604,7 @@ class PipelineService:
 
     async def list_with_samples(
         self,
+        owner_id: int,
         status: Optional[str] = None,
         sample_code: Optional[str] = None,
         date_from: Optional[str] = None,
@@ -596,8 +614,9 @@ class PipelineService:
     ) -> List[Dict[str, Any]]:
         """
         List pipeline runs with sample information (joined query).
-        
+
         Args:
+            owner_id: Only return runs of this user's samples
             status: Filter by pipeline status
             sample_code: Filter by sample code
             date_from: Filter by creation date (ISO format)
@@ -635,12 +654,12 @@ class PipelineService:
                 s.collection_date,
                 s.sequencing_platform
             FROM pipeline_runs pr
-            LEFT JOIN samples s ON pr.sample_id = s.sample_id
+            JOIN samples s ON pr.sample_id = s.sample_id
         """
-        
-        where_clauses = []
-        params = []
-        param_count = 1
+
+        where_clauses = ["s.owner_id = $1"]
+        params = [owner_id]
+        param_count = 2
         
         if status:
             where_clauses.append(f"pr.status = ${param_count}")
@@ -662,9 +681,8 @@ class PipelineService:
             params.append(date_to)
             param_count += 1
         
-        if where_clauses:
-            query += " WHERE " + " AND ".join(where_clauses)
-        
+        query += " WHERE " + " AND ".join(where_clauses)
+
         query += f" ORDER BY CASE WHEN pr.status IN ('running', 'queued', 'pending') THEN 0 ELSE 1 END, pr.created_at DESC LIMIT ${param_count} OFFSET ${param_count + 1}"
         params.extend([limit, offset])
         

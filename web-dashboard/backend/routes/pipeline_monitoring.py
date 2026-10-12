@@ -12,6 +12,7 @@ import re
 import logging
 
 from auth import protected
+from authz import current_user_id
 from config import config
 from minio_helper import get_minio_client
 
@@ -132,10 +133,11 @@ async def get_pipeline_status(request, pipeline_id: int):
     db_pool = request.app.ctx.db_pool
     async with db_pool.acquire() as conn:
         row = await conn.fetchrow("""
-            SELECT sample_name, results_path, status 
-            FROM pipeline_runs 
-            WHERE pipeline_id = $1
-        """, pipeline_id)
+            SELECT pr.sample_name, pr.results_path, pr.status
+            FROM pipeline_runs pr
+            JOIN samples s ON s.sample_id = pr.sample_id
+            WHERE pr.pipeline_id = $1 AND s.owner_id = $2
+        """, pipeline_id, current_user_id(request))
     
     if not row:
         raise NotFound(f"Pipeline {pipeline_id} not found")
@@ -230,8 +232,13 @@ async def get_pipeline_log(request, pipeline_id: int):
     db_pool = request.app.ctx.db_pool
     async with db_pool.acquire() as conn:
         row = await conn.fetchrow(
-            "SELECT log_file_path, results_path, sample_name FROM pipeline_runs WHERE pipeline_id = $1",
-            pipeline_id
+            """
+            SELECT pr.log_file_path, pr.results_path, pr.sample_name
+            FROM pipeline_runs pr
+            JOIN samples s ON s.sample_id = pr.sample_id
+            WHERE pr.pipeline_id = $1 AND s.owner_id = $2
+            """,
+            pipeline_id, current_user_id(request)
         )
 
     if not row:
@@ -302,21 +309,23 @@ async def get_pipeline_log(request, pipeline_id: int):
 @protected
 async def get_pipeline_report(request, pipeline_id: int):
     """Get generated HTML report"""
-    
-    results_base = config.RESULTS_DIR
-    result_dir = None
-    
-    for d in results_base.glob("*/"):
-        if d.is_dir():
-            report_file = d / "nextflow_report.html"
-            if report_file.exists():
-                result_dir = d
-                break
-    
-    if not result_dir:
+
+    db_pool = request.app.ctx.db_pool
+    async with db_pool.acquire() as conn:
+        results_path = await conn.fetchval(
+            """
+            SELECT pr.results_path
+            FROM pipeline_runs pr
+            JOIN samples s ON s.sample_id = pr.sample_id
+            WHERE pr.pipeline_id = $1 AND s.owner_id = $2
+            """,
+            pipeline_id, current_user_id(request)
+        )
+
+    if not results_path:
         raise NotFound("Pipeline report not found")
-    
-    report_file = result_dir / "nextflow_report.html"
+
+    report_file = config.RESULTS_DIR / Path(results_path).name / "nextflow_report.html"
     if not report_file.exists():
         raise NotFound("Report file not found")
     

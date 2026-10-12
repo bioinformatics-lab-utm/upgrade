@@ -254,23 +254,28 @@ class PipelineRepository(BaseRepository[PipelineRun]):
             result = await conn.fetchval(query, *params)
             return result is not None
     
-    async def get_statistics(self) -> Dict[str, Any]:
+    async def get_statistics(self, owner_id: Optional[int] = None) -> Dict[str, Any]:
         """
         Get pipeline run statistics.
-        
+
+        Args:
+            owner_id: Only count runs of this user's samples (all runs if None)
+
         Returns:
             Dictionary with counts by status
         """
         query = """
-            SELECT 
-                status,
+            SELECT
+                pr.status,
                 COUNT(*) as count,
-                AVG(runtime_minutes) as avg_runtime
-            FROM pipeline_runs
-            GROUP BY status
+                AVG(pr.runtime_minutes) as avg_runtime
+            FROM pipeline_runs pr
+            JOIN samples s ON s.sample_id = pr.sample_id
+            WHERE $1::int IS NULL OR s.owner_id = $1
+            GROUP BY pr.status
         """
         async with self.pool.acquire() as conn:
-            rows = await conn.fetch(query)
+            rows = await conn.fetch(query, owner_id)
             return {row['status']: {
                 'count': row['count'],
                 'avg_runtime': float(row['avg_runtime']) if row['avg_runtime'] else None

@@ -267,23 +267,12 @@ async def close_db(app, loop):
 
 @app.route("/api/health")
 async def health(request):
-    """Health check with real system stats for frontend status bar."""
-    try:
-        async with app.ctx.db_pool.acquire() as conn:
-            samples_count = await conn.fetchval(
-                "SELECT COUNT(*) FROM samples"
-            ) or 0
-            active_pipelines = await conn.fetchval(
-                "SELECT COUNT(*) FROM pipeline_runs WHERE status IN ('queued', 'running', 'pending')"
-            ) or 0
-    except Exception:
-        samples_count = 0
-        active_pipelines = 0
-
+    """
+    Public health check. Carries no data counts: those are per user and come
+    from the authenticated /api/pipeline/stats endpoint.
+    """
     return json({
         "status": "healthy",
-        "samples_count": samples_count,
-        "active_pipelines": active_pipelines,
         "measurement_datetime": datetime.utcnow().isoformat()
     })
 

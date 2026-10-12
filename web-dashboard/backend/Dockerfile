@@ -27,6 +27,7 @@ RUN curl -s https://get.nextflow.io | bash && \
     chmod +x nextflow && \
     mv nextflow /usr/local/bin/ && \
     mkdir -p /home/sanic/.nextflow && \
+    NXF_HOME=/home/sanic/.nextflow nextflow -version && \
     chmod -R 777 /home/sanic/.nextflow
 
 # Копирование зависимостей

@@ -108,6 +108,7 @@ class TestSampleServiceCreateSample:
         
         sample_data = SampleCreate(
             sample_code="S002",
+            owner_id=1,
             collection_date=date(2024, 1, 15)
         )
         
