@@ -10,6 +10,7 @@ import Register from './components/Register';
 import VerifyEmail from './components/VerifyEmail';
 import ErrorBoundary from './components/ErrorBoundary';
 import API from './config/api';
+import api from './services/api';
 import 'leaflet/dist/leaflet.css';
 import './App.css';
 
@@ -37,21 +38,32 @@ function App() {
       setUser(JSON.parse(storedUser));
     }
 
-    // Fetch system status from health endpoint
+    // System health is public; sample counts are per user (see effect below)
     fetch(API.endpoints.health)
       .then(res => res.json())
-      .then(data => setSystemStatus({
-        health: data.status,
-        samples: data.samples_count || 0,
-        pipelines: data.active_pipelines || 0
-      }))
-      .catch(() => setSystemStatus({ health: 'error', samples: 0, pipelines: 0 }));
+      .then(data => setSystemStatus(prev => ({ ...prev, health: data.status })))
+      .catch(() => setSystemStatus(prev => ({ ...prev, health: 'error' })));
 
     // Scroll effect
     const handleScroll = () => setIsScrolled(window.scrollY > 10);
     window.addEventListener('scroll', handleScroll);
     return () => window.removeEventListener('scroll', handleScroll);
   }, []);
+
+  // Counts in the status bar cover only the signed-in user's own samples
+  useEffect(() => {
+    if (!user) {
+      setSystemStatus(prev => ({ ...prev, samples: 0, pipelines: 0 }));
+      return;
+    }
+    api.get('/api/pipeline/stats')
+      .then(({ data }) => setSystemStatus(prev => ({
+        ...prev,
+        samples: data.total_samples || 0,
+        pipelines: data.active || 0
+      })))
+      .catch(() => setSystemStatus(prev => ({ ...prev, samples: 0, pipelines: 0 })));
+  }, [user]);
 
   const handleLogout = () => {
     localStorage.removeItem('token');

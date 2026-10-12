@@ -27,6 +27,8 @@ const PipelineDashboard = () => {
     sample_type: 'nanopore',
     collection_date: new Date().toISOString().split('T')[0],
     notes: '',
+    location_id: '',
+    temperature_celsius: '',
     files: []
   });
   const [uploading, setUploading] = useState(false);
@@ -37,6 +39,14 @@ const PipelineDashboard = () => {
   const [uploadStage, setUploadStage] = useState(''); // 'uploading', 'processing', 'complete'
   const [processingSteps, setProcessingSteps] = useState([]);
   const [currentJobId, setCurrentJobId] = useState(null);
+  const [rerunningId, setRerunningId] = useState(null);
+  const [locations, setLocations] = useState([]);
+
+  useEffect(() => {
+    api.get(`${API_URL}/api/samples/locations`)
+      .then(res => setLocations(res.data.locations || []))
+      .catch(err => console.error('Error loading locations:', err));
+  }, []);
 
   // OPTIMIZED: Smart polling with adaptive intervals
   // - Poll frequently when pipelines are running (5s)
@@ -155,6 +165,10 @@ const PipelineDashboard = () => {
         sample_type: uploadForm.sample_type,
         collection_date: uploadForm.collection_date,
         notes: uploadForm.notes,
+        location_id: uploadForm.location_id ? Number(uploadForm.location_id) : null,
+        metasub_fields: uploadForm.temperature_celsius !== ''
+          ? { temperature_measured: true, temperature_celsius: Number(uploadForm.temperature_celsius) }
+          : undefined,
         pipeline_name: 'nextflow_pipeline',
         parameters: {},
         files: filesInfo
@@ -330,6 +344,8 @@ const PipelineDashboard = () => {
         sample_type: 'nanopore',
         collection_date: new Date().toISOString().split('T')[0],
         notes: '',
+        location_id: '',
+        temperature_celsius: '',
         files: []
       });
       
@@ -479,6 +495,19 @@ const PipelineDashboard = () => {
     setLogs('');
   };
 
+  const handleRerun = async (run) => {
+    if (!window.confirm(`Rerun pipeline #${run.pipeline_id} (${run.sample_code})?`)) return;
+    setRerunningId(run.pipeline_id);
+    try {
+      await api.post(`${API_URL}/api/pipeline/runs/${run.pipeline_id}/rerun`);
+      await loadData();
+    } catch (err) {
+      alert(err.response?.data?.error || 'Pipeline rerun failed');
+    } finally {
+      setRerunningId(null);
+    }
+  };
+
   const handleJobComplete = (jobData) => {
     // When job completes, refresh runs list and clear job monitor
     loadData();
@@ -589,21 +618,49 @@ const PipelineDashboard = () => {
                         <td>{formatDate(run.started_at)}</td>
                         <td>{formatDuration(run)}</td>
                         <td>
-                          <button
-                            className="btn-link"
-                            onClick={() => setSelectedRun(run)}
-                          >
-                            View
-                          </button>
-                          {(run.status === 'running' || run.status === 'queued' || run.status === 'completed' || run.status === 'failed') && (
+                          <div className="row-actions">
                             <button
-                              className="btn-monitor"
-                              onClick={() => setMonitoringPipelineId(run.pipeline_id)}
-                              title="Real-time monitoring"
+                              className="run-action"
+                              onClick={() => setSelectedRun(run)}
+                              title="Run details"
                             >
-                              📊 Monitor
+                              <svg viewBox="0 0 24 24" aria-hidden="true">
+                                <path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12z" />
+                                <circle cx="12" cy="12" r="3" />
+                              </svg>
+                              View
                             </button>
-                          )}
+                            {(run.status === 'running' || run.status === 'queued' || run.status === 'completed' || run.status === 'failed') && (
+                              <button
+                                className="run-action run-action--primary"
+                                onClick={() => setMonitoringPipelineId(run.pipeline_id)}
+                                title="Real-time monitoring"
+                              >
+                                <svg viewBox="0 0 24 24" aria-hidden="true">
+                                  <path d="M3 12h4l3-8 4 16 3-8h4" />
+                                </svg>
+                                Monitor
+                              </button>
+                            )}
+                            {run.status === 'failed' && (
+                              <button
+                                className="run-action run-action--warning"
+                                onClick={() => handleRerun(run)}
+                                disabled={rerunningId === run.pipeline_id}
+                                title="Rerun this pipeline with the same input files"
+                              >
+                                <svg
+                                  viewBox="0 0 24 24"
+                                  aria-hidden="true"
+                                  className={rerunningId === run.pipeline_id ? 'spin' : undefined}
+                                >
+                                  <path d="M21 12a9 9 0 1 1-2.64-6.36" />
+                                  <path d="M21 3v6h-6" />
+                                </svg>
+                                {rerunningId === run.pipeline_id ? 'Rerunning…' : 'Rerun'}
+                              </button>
+                            )}
+                          </div>
                         </td>
                       </tr>
                     ))
@@ -686,6 +743,41 @@ const PipelineDashboard = () => {
                   </div>
                 </div>
 
+                <div className="form-row">
+                  <div className="form-group">
+                    <label htmlFor="location_id">City *</label>
+                    <select
+                      id="location_id"
+                      required
+                      value={uploadForm.location_id}
+                      onChange={(e) => setUploadForm({...uploadForm, location_id: e.target.value})}
+                    >
+                      <option value="" disabled>Select the city where the sample was collected</option>
+                      {[...new Set(locations.map(l => l.country))].map(country => (
+                        <optgroup key={country} label={country}>
+                          {locations.filter(l => l.country === country).map(l => (
+                            <option key={l.location_id} value={l.location_id}>{l.city}</option>
+                          ))}
+                        </optgroup>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div className="form-group">
+                    <label htmlFor="temperature_celsius">Temperature (°C)</label>
+                    <input
+                      id="temperature_celsius"
+                      type="number"
+                      step="0.1"
+                      min="-60"
+                      max="80"
+                      placeholder="e.g., 21.5"
+                      value={uploadForm.temperature_celsius}
+                      onChange={(e) => setUploadForm({...uploadForm, temperature_celsius: e.target.value})}
+                    />
+                  </div>
+                </div>
+
                 <div className="form-group">
                   <label htmlFor="file-input">FASTQ Files *</label>
                   <div className="file-input-wrapper">
@@ -760,6 +852,8 @@ const PipelineDashboard = () => {
                         sample_type: 'nanopore',
                         collection_date: new Date().toISOString().split('T')[0],
                         notes: '',
+                        location_id: '',
+                        temperature_celsius: '',
                         files: []
                       });
                       document.getElementById('file-input').value = '';

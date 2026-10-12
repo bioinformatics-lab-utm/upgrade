@@ -11,6 +11,7 @@ import logging
 import time
 
 from auth import protected
+from authz import current_user_id, user_owns_pipeline, get_owned_pipeline_by_job
 from models.pipeline_run import PipelineRunCreate
 from utils.error_handling import (
     handle_errors, ValidationError, PipelineConflictError,
@@ -39,6 +40,11 @@ def json_response(data, status=200):
     )
 
 
+async def _owns_pipeline(request, pipeline_id: int) -> bool:
+    async with request.app.ctx.db_pool.acquire() as conn:
+        return await user_owns_pipeline(conn, current_user_id(request), pipeline_id)
+
+
 # ==================== UPLOAD FLOW ====================
 
 @pipeline_v2_bp.post("/presigned-upload")
@@ -63,6 +69,7 @@ async def generate_presigned_urls(request):
         parameters = data.get('parameters', {})
         notes = data.get('notes', '')
         metasub_fields = data.get('metasub_fields')
+        location_id = data.get('location_id')
 
         logger.info(f"[UPLOAD] Presigned URL request for sample_code={sample_code}, files={len(files_info)}")
 
@@ -78,6 +85,19 @@ async def generate_presigned_urls(request):
         except Exception:
             collection_date = date.today()
 
+        if location_id is not None:
+            try:
+                location_id = int(location_id)
+            except (TypeError, ValueError):
+                return json_response({'error': 'location_id must be an integer'}, status=400)
+            async with request.app.ctx.db_pool.acquire() as conn:
+                location_ok = await conn.fetchval(
+                    "SELECT EXISTS (SELECT 1 FROM locations WHERE location_id = $1 AND is_active)",
+                    location_id
+                )
+            if not location_ok:
+                return json_response({'error': 'Unknown location'}, status=400)
+
         result = await pipeline_service.prepare_upload(
             sample_code=sample_code,
             sample_type=sample_type,
@@ -86,7 +106,9 @@ async def generate_presigned_urls(request):
             pipeline_name=pipeline_name,
             parameters=parameters,
             notes=notes,
-            metasub_fields=metasub_fields
+            metasub_fields=metasub_fields,
+            location_id=location_id,
+            owner_id=current_user_id(request)
         )
 
         request_time = time.time() - request_start
@@ -155,6 +177,19 @@ async def confirm_upload(request):
 
         if not uploaded_files or not isinstance(uploaded_files, list):
             return json_response({'error': 'uploaded_files array is required'}, status=400)
+
+        async with request.app.ctx.db_pool.acquire() as conn:
+            owned = await conn.fetchval("""
+                SELECT EXISTS (
+                    SELECT 1
+                    FROM pipeline_runs pr
+                    JOIN samples s ON s.sample_id = pr.sample_id
+                    WHERE pr.pipeline_id = $1 AND s.sample_id = $2
+                      AND s.sample_code = $3 AND s.owner_id = $4
+                )
+            """, pipeline_id, sample_id, sample_code, current_user_id(request))
+        if not owned:
+            return json_response({'error': 'Pipeline run not found'}, status=404)
 
         total_size_mb = sum(f.get('size', 0) for f in uploaded_files) / 1024 / 1024
         logger.info(
@@ -232,7 +267,9 @@ async def get_pipeline_runs(request):
             except (ValueError, AttributeError):
                 return json_response({'error': 'Invalid date_to format'}, status=400)
 
+        user_id = current_user_id(request)
         runs = await pipeline_service.list_with_samples(
+            owner_id=user_id,
             status=status,
             sample_code=sample_code,
             date_from=date_from,
@@ -241,7 +278,13 @@ async def get_pipeline_runs(request):
             offset=offset
         )
 
-        total = await pipeline_service.count_by_status(status) if status else await pipeline_service.pipeline_repo.count()
+        async with request.app.ctx.db_pool.acquire() as conn:
+            total = await conn.fetchval("""
+                SELECT COUNT(*)
+                FROM pipeline_runs pr
+                JOIN samples s ON s.sample_id = pr.sample_id
+                WHERE s.owner_id = $1 AND ($2::text IS NULL OR pr.status = $2)
+            """, user_id, status)
 
         return json_response({
             'runs': runs,
@@ -260,6 +303,9 @@ async def get_pipeline_runs(request):
 async def get_pipeline_run(request, pipeline_id: int):
     """Get single pipeline run by ID."""
     try:
+        if not await _owns_pipeline(request, pipeline_id):
+            return json_response({'error': 'Pipeline run not found'}, status=404)
+
         services = request.app.ctx.services
         pipeline_service = services.get_pipeline_service()
 
@@ -280,6 +326,9 @@ async def get_pipeline_run(request, pipeline_id: int):
 async def update_pipeline_status(request, pipeline_id: int):
     """Update pipeline run status."""
     try:
+        if not await _owns_pipeline(request, pipeline_id):
+            return json_response({'error': 'Pipeline run not found'}, status=404)
+
         services = request.app.ctx.services
         pipeline_service = services.get_pipeline_service()
 
@@ -319,6 +368,9 @@ async def update_pipeline_status(request, pipeline_id: int):
 async def get_pipeline_progress(request, pipeline_id: int):
     """Get real-time progress events for a pipeline run."""
     try:
+        if not await _owns_pipeline(request, pipeline_id):
+            return json_response({'error': 'Pipeline run not found'}, status=404)
+
         services = request.app.ctx.services
         pipeline_service = services.get_pipeline_service()
         pool = pipeline_service.pipeline_repo.pool
@@ -365,11 +417,17 @@ async def get_pipeline_stats(request):
         services = request.app.ctx.services
         pipeline_service = services.get_pipeline_service()
 
-        stats = await pipeline_service.get_statistics()
+        user_id = current_user_id(request)
+        stats = await pipeline_service.get_statistics(owner_id=user_id)
 
         # Build flat structure expected by frontend
-        by_status = {s: v.get('count', 0) for s, v in stats.items()} if isinstance(list(stats.values())[0], dict) else stats
+        by_status = {s: v.get('count', 0) for s, v in stats.items()}
         total = sum(by_status.values())
+
+        async with request.app.ctx.db_pool.acquire() as conn:
+            total_samples = await conn.fetchval(
+                "SELECT COUNT(*) FROM samples WHERE owner_id = $1", user_id
+            )
 
         return json_response({
             'statistics': stats,
@@ -379,6 +437,8 @@ async def get_pipeline_stats(request):
             'completed': by_status.get('completed', 0),
             'failed':    by_status.get('failed', 0),
             'cancelled': by_status.get('cancelled', 0),
+            'active':    by_status.get('running', 0) + by_status.get('queued', 0) + by_status.get('pending', 0),
+            'total_samples': total_samples,
             'timestamp': datetime.utcnow().isoformat()
         }, status=200)
 
@@ -411,10 +471,13 @@ async def submit_pipeline(request):
 
         logger.info(f"[SUBMIT] Pipeline submission for sample {sample_code}")
 
-        sample_service = services.get_sample_service()
-        sample = await sample_service.get_sample_by_code(sample_code)
+        async with request.app.ctx.db_pool.acquire() as conn:
+            sample_id = await conn.fetchval(
+                "SELECT sample_id FROM samples WHERE sample_code = $1 AND owner_id = $2",
+                sample_code, current_user_id(request)
+            )
 
-        if not sample:
+        if not sample_id:
             return json_response({'error': f'Sample {sample_code} not found'}, status=404)
 
         from pathlib import Path
@@ -424,7 +487,7 @@ async def submit_pipeline(request):
         Path(results_path).mkdir(parents=True, exist_ok=True, mode=0o777)
 
         pipeline_create = PipelineRunCreate(
-            sample_id=sample.sample_id,
+            sample_id=sample_id,
             sample_name=sample_code,
             pipeline_name=pipeline_name,
             parameters=parameters,
@@ -449,7 +512,7 @@ async def submit_pipeline(request):
             'success': True,
             'pipeline_id': pipeline_id,
             'job_id': job_id,
-            'sample_id': sample.sample_id,
+            'sample_id': sample_id,
             'sample_code': sample_code,
             'status': 'queued',
             'message': f'Pipeline {pipeline_id} queued successfully'
@@ -467,6 +530,11 @@ async def submit_pipeline(request):
 async def get_job_status_endpoint(request, job_id: str):
     """Get RQ job status."""
     try:
+        async with request.app.ctx.db_pool.acquire() as conn:
+            owned = await get_owned_pipeline_by_job(conn, current_user_id(request), job_id)
+        if not owned:
+            return json_response({'error': 'Job not found', 'job_id': job_id}, status=404)
+
         status = get_job_status(job_id)
         return json_response(status, status=200)
     except Exception as e:
@@ -484,10 +552,7 @@ async def cancel_job_endpoint(request, job_id: str):
         pool = pipeline_service.pipeline_repo.pool
 
         async with pool.acquire() as conn:
-            pipeline_run = await conn.fetchrow(
-                "SELECT pipeline_id, status FROM pipeline_runs WHERE job_id = $1",
-                job_id
-            )
+            pipeline_run = await get_owned_pipeline_by_job(conn, current_user_id(request), job_id)
 
         if not pipeline_run:
             return json_response({
@@ -543,15 +608,18 @@ async def cancel_stale_pipeline(request, pipeline_id: int):
 
         async with pool.acquire() as conn:
             result = await conn.fetchval("""
-                UPDATE pipeline_runs
+                UPDATE pipeline_runs pr
                 SET status = 'failed',
                     error_message = 'Upload interrupted - pipeline never started',
                     completed_at = CURRENT_TIMESTAMP
-                WHERE pipeline_id = $1
-                  AND status = 'queued'
-                  AND job_id IS NULL
-                RETURNING pipeline_id
-            """, pipeline_id)
+                FROM samples s
+                WHERE pr.pipeline_id = $1
+                  AND pr.status = 'queued'
+                  AND pr.job_id IS NULL
+                  AND s.sample_id = pr.sample_id
+                  AND s.owner_id = $2
+                RETURNING pr.pipeline_id
+            """, pipeline_id, current_user_id(request))
 
         if result:
             logger.info(f"Cancelled stale pipeline {pipeline_id} (no job_id)")
@@ -566,6 +634,94 @@ async def cancel_stale_pipeline(request, pipeline_id: int):
         return json_response({'error': str(e)}, status=500)
 
 
+@pipeline_v2_bp.post("/runs/<pipeline_id:int>/rerun")
+@protected
+async def rerun_pipeline(request, pipeline_id: int):
+    """
+    Re-enqueue a failed pipeline under the same pipeline_id.
+    Bronze files stay registered in minio_objects against this pipeline_id
+    (failure cleanup only removes the local copy), so the worker re-downloads them.
+    """
+    try:
+        services = request.app.ctx.services
+        pipeline_service = services.get_pipeline_service()
+        pool = pipeline_service.pipeline_repo.pool
+
+        async with pool.acquire() as conn:
+            async with conn.transaction():
+                run = await conn.fetchrow("""
+                    SELECT pr.pipeline_id, pr.status, pr.parameters, pr.bronze_path,
+                           pr.results_path, s.sample_code
+                    FROM pipeline_runs pr
+                    JOIN samples s ON s.sample_id = pr.sample_id
+                    WHERE pr.pipeline_id = $1 AND s.owner_id = $2
+                    FOR UPDATE OF pr
+                """, pipeline_id, current_user_id(request))
+
+                if not run:
+                    return json_response({'error': 'Pipeline run not found'}, status=404)
+                if run['status'] != 'failed':
+                    return json_response(
+                        {'error': f"Only failed runs can be rerun (status: {run['status']})"},
+                        status=400
+                    )
+
+                has_inputs = await conn.fetchval(
+                    "SELECT EXISTS (SELECT 1 FROM minio_objects WHERE pipeline_id = $1)",
+                    pipeline_id
+                )
+                if not has_inputs or not run['bronze_path']:
+                    return json_response(
+                        {'error': 'No uploaded input files for this run - upload the sample again'},
+                        status=400
+                    )
+
+                await conn.execute(
+                    "DELETE FROM pipeline_progress_events WHERE pipeline_id = $1",
+                    pipeline_id
+                )
+                await conn.execute("""
+                    UPDATE pipeline_runs
+                    SET status = 'queued', error_message = NULL, exit_code = NULL,
+                        started_at = NULL, completed_at = NULL, runtime_minutes = NULL,
+                        job_id = NULL, queued_at = CURRENT_TIMESTAMP,
+                        updated_at = CURRENT_TIMESTAMP
+                    WHERE pipeline_id = $1
+                """, pipeline_id)
+
+        try:
+            params = json.loads(run['parameters']) if run['parameters'] else {}
+        except (TypeError, ValueError):
+            params = {}
+
+        from tasks.pipeline_tasks import enqueue_pipeline
+        from models.pipeline_run import PipelineRunUpdate
+        try:
+            job = enqueue_pipeline(
+                pipeline_id=pipeline_id,
+                sample_code=run['sample_code'],
+                input_dir=run['bronze_path'],
+                output_dir=run['results_path'] or f"/results/{run['sample_code']}",
+                params=params
+            )
+        except Exception:
+            await pipeline_service.mark_as_failed(pipeline_id, 'Rerun could not be enqueued')
+            raise
+
+        await pipeline_service.pipeline_repo.update(pipeline_id, PipelineRunUpdate(job_id=job.id))
+        logger.info(f"[RERUN] Pipeline {pipeline_id} re-enqueued as job {job.id}")
+
+        return json_response({
+            'success': True,
+            'pipeline_id': pipeline_id,
+            'job_id': job.id,
+            'status': 'queued',
+        })
+    except Exception as e:
+        logger.error(f"[RERUN] Error rerunning pipeline {pipeline_id}: {e}", exc_info=True)
+        return json_response({'error': 'Pipeline rerun failed'}, status=500)
+
+
 # ==================== LOGS & PROCESSES ====================
 
 @pipeline_v2_bp.get("/runs/<pipeline_id:int>/log")
@@ -573,6 +729,9 @@ async def cancel_stale_pipeline(request, pipeline_id: int):
 async def get_pipeline_log(request, pipeline_id: int):
     """Get execution log."""
     try:
+        if not await _owns_pipeline(request, pipeline_id):
+            return json_response({'error': 'Pipeline run not found'}, status=404)
+
         from pathlib import Path
         import subprocess
 
@@ -628,6 +787,9 @@ async def get_pipeline_log(request, pipeline_id: int):
 async def get_pipeline_processes(request, pipeline_id: int):
     """Get Nextflow process details."""
     try:
+        if not await _owns_pipeline(request, pipeline_id):
+            return json_response({'error': 'Pipeline run not found'}, status=404)
+
         services = request.app.ctx.services
         pipeline_service = services.get_pipeline_service()
         pool = pipeline_service.pipeline_repo.pool
@@ -712,16 +874,18 @@ async def cleanup_stuck_pipelines(request):
         dry_run = request.args.get('dry_run', 'false').lower() == 'true'
 
         query = """
-            SELECT pipeline_id, status, job_id, queued_at,
-                   EXTRACT(EPOCH FROM (NOW() - queued_at))/3600 as hours_stuck
-            FROM pipeline_runs
-            WHERE status IN ('queued', 'running')
-              AND queued_at < NOW() - INTERVAL '1 hour' * $1
-            ORDER BY queued_at
+            SELECT pr.pipeline_id, pr.status, pr.job_id, pr.queued_at,
+                   EXTRACT(EPOCH FROM (NOW() - pr.queued_at))/3600 as hours_stuck
+            FROM pipeline_runs pr
+            JOIN samples s ON s.sample_id = pr.sample_id
+            WHERE pr.status IN ('queued', 'running')
+              AND pr.queued_at < NOW() - INTERVAL '1 hour' * $1
+              AND s.owner_id = $2
+            ORDER BY pr.queued_at
         """
 
         async with pool.acquire() as conn:
-            stuck_pipelines = await conn.fetch(query, hours)
+            stuck_pipelines = await conn.fetch(query, hours, current_user_id(request))
 
         if dry_run:
             return json_response({

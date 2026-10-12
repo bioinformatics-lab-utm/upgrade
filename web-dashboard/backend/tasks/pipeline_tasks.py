@@ -317,6 +317,11 @@ class PipelineExecutor:
             # Use work directory for Nextflow (already in /tmp, accessible to Docker containers)
             input_dir = local_input_dir
 
+            # TMPDIR (/tmp/nextflow) sits on the host /tmp bind mount, so the copy
+            # baked into the image is shadowed and systemd-tmpfiles ages it out
+            # after 30 idle days. Without it the launcher's mktemp fails.
+            os.makedirs(os.environ.get('TMPDIR', '/tmp/nextflow'), exist_ok=True)
+
             # Build Nextflow command
             nextflow_cmd = [
                 'nextflow', 'run',

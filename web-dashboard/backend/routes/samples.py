@@ -5,6 +5,7 @@ from sanic import Blueprint, response
 from sanic.log import logger
 from datetime import datetime, timedelta, date
 from auth import protected
+from authz import current_user_id
 
 
 def serialize(obj):
@@ -35,8 +36,8 @@ async def get_samples_for_map(request):
         sample_type = request.args.get('sampleType', 'all')
         has_amr = request.args.get('hasAMR', 'false').lower() == 'true'
 
-        where_clauses = ["l.latitude IS NOT NULL", "l.longitude IS NOT NULL"]
-        params = []
+        where_clauses = ["s.owner_id = $1", "l.latitude IS NOT NULL", "l.longitude IS NOT NULL"]
+        params = [current_user_id(request)]
 
         if date_range != 'all':
             days = {'7days': 7, '30days': 30, '90days': 90}.get(date_range, 0)
@@ -70,6 +71,7 @@ async def get_samples_for_map(request):
                     s.collection_date,
                     s.sample_type,
                     s.sequencing_platform,
+                    s.temperature_celsius,
                     COUNT(DISTINCT rg.rg_id)          AS amr_genes_count,
                     COUNT(DISTINCT rg.gene_name)       AS unique_amr_genes,
                     COUNT(DISTINCT dorg.organism_name)  AS pathogens_count,
@@ -97,6 +99,9 @@ async def get_samples_for_map(request):
                 d = dict(row)
                 if d.get('collection_date'):
                     d['collection_date'] = d['collection_date'].isoformat()
+                for key in ('latitude', 'longitude', 'temperature_celsius'):
+                    if d.get(key) is not None:
+                        d[key] = float(d[key])
                 samples_list.append(d)
 
             stats = await conn.fetchrow(f"""
@@ -129,6 +134,36 @@ async def get_samples_for_map(request):
         }, status=500)
 
 
+@samples_bp.route('/locations', methods=['GET'])
+@protected
+async def list_locations(request):
+    """Cities a sample can be assigned to (the map plots samples at these coordinates)."""
+    try:
+        async with request.app.ctx.db_pool.acquire() as conn:
+            rows = await conn.fetch("""
+                SELECT location_id, city, country, latitude, longitude
+                FROM locations
+                WHERE is_active AND city IS NOT NULL
+                  AND latitude IS NOT NULL AND longitude IS NOT NULL
+                ORDER BY country, city
+            """)
+        return response.json({
+            'locations': [
+                {
+                    'location_id': r['location_id'],
+                    'city': r['city'],
+                    'country': r['country'],
+                    'latitude': float(r['latitude']),
+                    'longitude': float(r['longitude']),
+                }
+                for r in rows
+            ]
+        })
+    except Exception as e:
+        logger.error(f"Error listing locations: {e}")
+        return response.json({'error': 'Failed to load locations', 'locations': []}, status=500)
+
+
 @samples_bp.route('/<sample_id:int>', methods=['GET'])
 @protected
 async def get_sample_details(request, sample_id):
@@ -137,7 +172,8 @@ async def get_sample_details(request, sample_id):
         pool = request.app.ctx.db_pool
         async with pool.acquire() as conn:
             sample = await conn.fetchrow(
-                "SELECT * FROM samples WHERE sample_id = $1", sample_id
+                "SELECT * FROM samples WHERE sample_id = $1 AND owner_id = $2",
+                sample_id, current_user_id(request)
             )
             if not sample:
                 return response.json({'error': 'Sample not found'}, status=404)
@@ -190,8 +226,9 @@ async def get_sample_details(request, sample_id):
 @samples_bp.route('/stats', methods=['GET'])
 @protected
 async def get_global_stats(request):
-    """Get global statistics for dashboard"""
+    """Get dashboard statistics for the current user's samples"""
     try:
+        user_id = current_user_id(request)
         pool = request.app.ctx.db_pool
         async with pool.acquire() as conn:
             stats = await conn.fetchrow("""
@@ -205,7 +242,8 @@ async def get_global_stats(request):
                 LEFT JOIN pipeline_runs pr      ON s.sample_id = pr.sample_id
                 LEFT JOIN resistance_genes rg   ON s.sample_id = rg.sample_id
                 LEFT JOIN detected_organisms dorg ON s.sample_id = dorg.sample_id
-            """)
+                WHERE s.owner_id = $1
+            """, user_id)
 
             activity = await conn.fetch("""
                 SELECT
@@ -217,10 +255,11 @@ async def get_global_stats(request):
                 JOIN pipeline_runs pr     ON s.sample_id = pr.sample_id
                 LEFT JOIN resistance_genes rg ON s.sample_id = rg.sample_id
                 WHERE pr.started_at >= NOW() - INTERVAL '7 days'
+                  AND s.owner_id = $1
                 GROUP BY s.sample_code, pr.status, pr.started_at
                 ORDER BY pr.started_at DESC NULLS LAST
                 LIMIT 10
-            """)
+            """, user_id)
 
             return response.json(serialize({
                 'stats': dict(stats) if stats else {},

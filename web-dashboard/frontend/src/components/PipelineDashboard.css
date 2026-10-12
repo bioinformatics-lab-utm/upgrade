@@ -418,32 +418,100 @@
   background: #f9fafb;
 }
 
-.btn-monitor {
-  padding: 0.625rem 1rem;
-  background: linear-gradient(135deg, #1e40af 0%, #3b82f6 100%);
-  border: none;
-  border-radius: 7px;
-  color: white !important;
-  font-size: 0.875rem;
-  font-weight: 600;
-  cursor: pointer;
-  transition: all 0.3s ease;
-  margin-left: 0.5rem;
-  white-space: nowrap;
-  font-family: 'Inter', sans-serif !important;
-  box-shadow: 0 2px 8px rgba(30, 64, 175, 0.2);
+.row-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: nowrap;
 }
 
-.btn-monitor:hover {
-  transform: translateY(-2px);
-  box-shadow: 0 4px 16px rgba(30, 64, 175, 0.3);
+.run-action {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.375rem;
+  height: 2rem;
+  padding: 0 0.75rem;
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  color: #334155 !important;
+  font-family: 'Inter', sans-serif !important;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  line-height: 1;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background-color 0.15s ease, border-color 0.15s ease, color 0.15s ease;
+}
+
+.run-action svg {
+  width: 0.9375rem;
+  height: 0.9375rem;
+  flex-shrink: 0;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.run-action:hover:not(:disabled) {
+  background: #f8fafc;
+  border-color: #cbd5e1;
+  color: #0f172a !important;
+}
+
+.run-action:focus-visible {
+  outline: 2px solid #3b82f6;
+  outline-offset: 2px;
+}
+
+.run-action--primary {
+  background: #eff6ff;
+  border-color: #bfdbfe;
+  color: #1d4ed8 !important;
+}
+
+.run-action--primary:hover:not(:disabled) {
+  background: #dbeafe;
+  border-color: #93c5fd;
+  color: #1e40af !important;
+}
+
+.run-action--warning {
+  background: #fffbeb;
+  border-color: #fde68a;
+  color: #b45309 !important;
+}
+
+.run-action--warning:hover:not(:disabled) {
+  background: #fef3c7;
+  border-color: #fcd34d;
+  color: #92400e !important;
+}
+
+.run-action:disabled {
+  opacity: 0.6;
+  cursor: wait;
+}
+
+.run-action svg.spin {
+  animation: run-action-spin 0.9s linear infinite;
+}
+
+@keyframes run-action-spin {
+  to { transform: rotate(360deg); }
 }
 
 @media (max-width: 640px) {
-  .btn-monitor {
-    padding: 0.375rem 0.75rem;
+  .row-actions {
+    gap: 0.25rem;
+  }
+
+  .run-action {
+    height: 1.75rem;
+    padding: 0 0.5rem;
     font-size: 0.75rem;
-    margin-left: 0.25rem;
   }
 }
 
@@ -530,6 +598,41 @@
   outline: none;
   border-color: #2563eb;
   box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.1);
+}
+
+/* Auth.css styles `.form-group input` globally (2px border, 8px radius) but not
+   selects, so match them here or dropdowns render as native thin boxes. */
+.upload-form .form-group select {
+  width: 100%;
+  padding: 0.75rem 2.5rem 0.75rem 1rem;
+  border: 2px solid #e2e8f0;
+  border-radius: 8px;
+  background-color: #ffffff;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%2364748b' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 0.875rem center;
+  background-size: 1rem;
+  font-size: 1rem;
+  font-family: inherit;
+  color: #1e293b;
+  -webkit-appearance: none;
+  -moz-appearance: none;
+  appearance: none;
+  cursor: pointer;
+}
+
+.upload-form .form-group select:invalid {
+  color: #94a3b8;
+}
+
+.upload-form .form-group select option,
+.upload-form .form-group select optgroup {
+  color: #1e293b;
+}
+
+.upload-form .form-group select:focus {
+  border-color: #0052ff;
+  box-shadow: 0 0 0 3px rgba(0, 82, 255, 0.1);
 }
 
 .file-input {

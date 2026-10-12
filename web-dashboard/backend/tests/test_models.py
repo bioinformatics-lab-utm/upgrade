@@ -129,6 +129,7 @@ class TestSampleModels:
         
         sample = SampleCreate(
             sample_code="SAMPLE001",
+            owner_id=1,
             collection_date=date(2024, 1, 15)
         )
         
@@ -136,12 +137,20 @@ class TestSampleModels:
         assert sample.collection_date == date(2024, 1, 15)
         assert sample.status == "collected"
 
+    def test_sample_create_requires_owner(self):
+        """SampleCreate must record which user owns the sample"""
+        from models.sample import SampleCreate
+
+        with pytest.raises(ValidationError):
+            SampleCreate(sample_code="SAMPLE_NO_OWNER", collection_date=date(2024, 1, 15))
+
     def test_sample_create_with_optional_fields(self):
         """Test SampleCreate with optional fields"""
         from models.sample import SampleCreate
         
         sample = SampleCreate(
             sample_code="SAMPLE002",
+            owner_id=1,
             collection_date=date(2024, 1, 15),
             sample_type="surface_swab",
             sample_volume_ml=Decimal("10.5"),
@@ -184,6 +193,7 @@ class TestSampleModels:
         with pytest.raises(ValidationError):
             SampleCreate(
                 sample_code="SAMPLE004",
+                owner_id=1,
                 collection_date=date(2024, 1, 15),
                 processing_priority=10
             )
@@ -209,6 +219,7 @@ class TestSampleModels:
         
         sample = SampleCreate(
             sample_code="SAMPLE006",
+            owner_id=1,
             collection_date=date(2024, 1, 15),
             metadata={"key": "value", "count": 42}
         )

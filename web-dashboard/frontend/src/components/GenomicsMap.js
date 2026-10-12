@@ -48,6 +48,36 @@ const GenomicsMap = () => {
     return Math.max(8, Math.min(20, sample.amr_genes_count * 2));
   };
 
+  const formatTemperature = (value) =>
+    value === null || value === undefined ? 'N/A' : `${Number(value).toFixed(1)} °C`;
+
+  // Samples are placed at their city's coordinates, so several samples from the same
+  // city would sit exactly on top of each other. Spread them on a small ring (~1 km).
+  const markerPositions = (() => {
+    const groups = {};
+    samples.forEach(s => {
+      if (!s.latitude || !s.longitude) return;
+      const key = `${s.latitude},${s.longitude}`;
+      (groups[key] = groups[key] || []).push(s);
+    });
+    const positions = {};
+    Object.values(groups).forEach(group => {
+      group.forEach((s, i) => {
+        if (group.length === 1) {
+          positions[s.sample_id] = [s.latitude, s.longitude];
+          return;
+        }
+        const angle = (2 * Math.PI * i) / group.length;
+        const r = 0.01;
+        positions[s.sample_id] = [
+          s.latitude + r * Math.sin(angle),
+          s.longitude + (r * Math.cos(angle)) / Math.cos((s.latitude * Math.PI) / 180)
+        ];
+      });
+    });
+    return positions;
+  })();
+
   return (
     <div className="genomics-map-container">
       {/* Header Stats */}
@@ -123,7 +153,7 @@ const GenomicsMap = () => {
             sample.latitude && sample.longitude && (
               <CircleMarker
                 key={sample.sample_id}
-                center={[sample.latitude, sample.longitude]}
+                center={markerPositions[sample.sample_id]}
                 radius={getMarkerSize(sample)}
                 fillColor={getMarkerColor(sample)}
                 color="#fff"
@@ -138,9 +168,10 @@ const GenomicsMap = () => {
                   <div className="sample-popup">
                     <h3>{sample.sample_code}</h3>
                     <div className="popup-details">
-                      <p><strong>Location:</strong> {sample.location_name}</p>
+                      <p><strong>Location:</strong> {[sample.city, sample.country].filter(Boolean).join(', ') || sample.location_name}</p>
                       <p><strong>Date:</strong> {new Date(sample.collection_date).toLocaleDateString()}</p>
                       <p><strong>Type:</strong> {sample.sample_type}</p>
+                      <p><strong>Temperature:</strong> {formatTemperature(sample.temperature_celsius)}</p>
                       <p><strong>AMR Genes:</strong> {sample.amr_genes_count || 0}</p>
                       <p><strong>Pathogens:</strong> {sample.pathogens_count || 0}</p>
                     </div>
@@ -231,6 +262,10 @@ const GenomicsMap = () => {
                 <div>
                   <label>Collection Date</label>
                   <span>{new Date(selectedSample.collection_date).toLocaleDateString()}</span>
+                </div>
+                <div>
+                  <label>Temperature</label>
+                  <span>{formatTemperature(selectedSample.temperature_celsius)}</span>
                 </div>
               </div>
             </section>
