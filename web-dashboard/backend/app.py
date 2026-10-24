@@ -23,10 +23,12 @@ from routes.samples import samples_bp
 from routes.results import results_bp
 from routes.auth import auth_bp
 from routes.pipeline_monitoring import monitoring_bp
+from routes.notifications import notifications_bp
 
 # Import service container
 from container import create_service_container
 from minio_helper import get_minio_client
+from services.notification_service import run_email_dispatcher
 
 logging.basicConfig(level=getattr(logging, config.LOG_LEVEL))
 logger = logging.getLogger(__name__)
@@ -72,6 +74,7 @@ app.blueprint(pipeline_v2_bp)
 app.blueprint(samples_bp)
 app.blueprint(results_bp)
 app.blueprint(monitoring_bp)
+app.blueprint(notifications_bp)
 
 # Database configuration from config module
 DB_CONFIG = {
@@ -150,6 +153,7 @@ async def setup_db(app, loop):
 async def start_background_tasks(app, loop):
     """Start periodic background tasks."""
     app.ctx.stale_cleanup_task = asyncio.ensure_future(cleanup_stale_pipelines(app))
+    app.ctx.notification_email_task = asyncio.ensure_future(run_email_dispatcher(app.ctx.db_pool))
 
 
 @app.listener('before_server_stop')
@@ -157,6 +161,8 @@ async def stop_background_tasks(app, loop):
     """Cancel background tasks on shutdown."""
     if hasattr(app.ctx, 'stale_cleanup_task'):
         app.ctx.stale_cleanup_task.cancel()
+    if hasattr(app.ctx, 'notification_email_task'):
+        app.ctx.notification_email_task.cancel()
 
 
 def _is_rq_job_alive(rq_redis, job_id: str) -> bool:

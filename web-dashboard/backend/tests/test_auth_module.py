@@ -254,3 +254,150 @@ class TestJWTConstants:
         """Test JWT_EXPIRATION_HOURS is positive"""
         from auth import JWT_EXPIRATION_HOURS
         assert JWT_EXPIRATION_HOURS > 0
+
+
+def _conn_with_transaction():
+    """Mock asyncpg connection whose transaction() works as an async context manager"""
+    conn = AsyncMock()
+    transaction = MagicMock()
+    transaction.__aenter__ = AsyncMock(return_value=None)
+    transaction.__aexit__ = AsyncMock(return_value=False)
+    conn.transaction = MagicMock(return_value=transaction)
+    return conn
+
+
+class TestChangeUserPassword:
+    """Tests for change_user_password"""
+
+    @pytest.mark.asyncio
+    async def test_changes_password_when_current_is_correct(self):
+        """Test the new hash is stored when the current password matches"""
+        from auth import change_user_password, hash_password, verify_password
+
+        conn = _conn_with_transaction()
+        conn.fetchval = AsyncMock(return_value=hash_password("OldPass123!"))
+
+        status = await change_user_password(conn, 7, "OldPass123!", "NewPass456!")
+
+        assert status == 'changed'
+        conn.execute.assert_awaited_once()
+        query, new_hash, user_id = conn.execute.await_args.args
+        assert 'password_changed_at' in query
+        assert user_id == 7
+        assert verify_password("NewPass456!", new_hash)
+        assert not verify_password("OldPass123!", new_hash)
+
+    @pytest.mark.asyncio
+    async def test_rejects_wrong_current_password(self):
+        """Test nothing is written when the current password is wrong"""
+        from auth import change_user_password, hash_password
+
+        conn = _conn_with_transaction()
+        conn.fetchval = AsyncMock(return_value=hash_password("OldPass123!"))
+
+        status = await change_user_password(conn, 7, "WrongPass123!", "NewPass456!")
+
+        assert status == 'invalid_current'
+        conn.execute.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_unknown_user(self):
+        """Test a missing or inactive user is reported as not found"""
+        from auth import change_user_password
+
+        conn = _conn_with_transaction()
+        conn.fetchval = AsyncMock(return_value=None)
+
+        status = await change_user_password(conn, 999, "OldPass123!", "NewPass456!")
+
+        assert status == 'not_found'
+        conn.execute.assert_not_awaited()
+
+
+class TestUpdateUserProfile:
+    """Tests for update_user_profile"""
+
+    @pytest.mark.asyncio
+    async def test_splits_full_name(self):
+        """Test full name is stored as first and last name"""
+        from auth import update_user_profile
+
+        conn = AsyncMock()
+        conn.fetchval = AsyncMock(return_value=7)
+        conn.fetchrow = AsyncMock(return_value={
+            'user_id': 7, 'username': 'johndoe', 'email': 'john@example.com',
+            'first_name': 'John', 'last_name': 'van Doe', 'user_type': 'researcher',
+            'email_verified': True, 'created_at': None, 'last_login': None,
+            'password_changed_at': None,
+        })
+
+        user = await update_user_profile(conn, 7, "John van Doe")
+
+        _, first_name, last_name, user_id = conn.fetchval.await_args.args
+        assert (first_name, last_name, user_id) == ('John', 'van Doe', 7)
+        assert user['full_name'] == 'John van Doe'
+        assert user['user_type'] == 'researcher'
+
+    @pytest.mark.asyncio
+    async def test_empty_name_clears_both_parts(self):
+        """Test an empty full name clears first and last name"""
+        from auth import update_user_profile
+
+        conn = AsyncMock()
+        conn.fetchval = AsyncMock(return_value=None)
+
+        await update_user_profile(conn, 7, "")
+
+        _, first_name, last_name, _ = conn.fetchval.await_args.args
+        assert first_name is None
+        assert last_name is None
+
+    @pytest.mark.asyncio
+    async def test_unknown_user(self):
+        """Test a missing or inactive user returns None"""
+        from auth import update_user_profile
+
+        conn = AsyncMock()
+        conn.fetchval = AsyncMock(return_value=None)
+
+        assert await update_user_profile(conn, 999, "John Doe") is None
+        conn.fetchrow.assert_not_awaited()
+
+
+class TestAuthenticateUser:
+    """Tests for authenticate_user"""
+
+    @staticmethod
+    def _conn_with_user(password):
+        from auth import hash_password
+
+        conn = AsyncMock()
+        conn.fetchrow = AsyncMock(return_value={
+            'user_id': 7, 'username': 'johndoe', 'email': 'john@example.com',
+            'password_hash': hash_password(password), 'first_name': 'John', 'last_name': 'Doe',
+            'is_active': True, 'email_verified': True,
+        })
+        return conn
+
+    @pytest.mark.asyncio
+    async def test_looks_up_username_or_email(self):
+        """Test the login name is matched against the username and the (lowercase) email"""
+        from auth import authenticate_user
+
+        conn = self._conn_with_user("Secret123!")
+
+        user = await authenticate_user(conn, "John@Example.com", "Secret123!")
+
+        query, identifier = conn.fetchrow.await_args.args
+        assert "username = $1 OR email = lower($1)" in query
+        assert identifier == "John@Example.com"
+        assert user['username'] == 'johndoe'
+
+    @pytest.mark.asyncio
+    async def test_wrong_password(self):
+        """Test a wrong password returns None"""
+        from auth import authenticate_user
+
+        conn = self._conn_with_user("Secret123!")
+
+        assert await authenticate_user(conn, "john@example.com", "Wrong123!") is None

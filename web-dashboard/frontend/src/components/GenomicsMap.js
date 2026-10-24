@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { MapContainer, TileLayer, Popup, CircleMarker } from 'react-leaflet';
+import { useNavigate } from 'react-router-dom';
 import api from '../services/api';
 import logger from '../utils/logger';
 import './GenomicsMap.css';
@@ -7,7 +8,32 @@ import './GenomicsMap.css';
 const API_URL = '';
 logger.log('[GenomicsMap] API_URL:', API_URL);
 
+const RUN_STATUS_LABELS = {
+  queued: 'Queued',
+  running: 'Running',
+  completed: 'Completed',
+  failed: 'Failed',
+  cancelled: 'Stopped',
+};
+
+// pipeline_runs come newest first; the results page takes a pipeline_id
+const latestCompletedRun = (sample) =>
+  (sample?.pipeline_runs || []).find((run) => run.status === 'completed');
+
+const formatRunDate = (run) => {
+  const iso = run.completed_at || run.started_at;
+  if (!iso) return run.status === 'queued' ? 'Waiting in queue' : null;
+  return new Date(iso).toLocaleString(undefined, {
+    day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit',
+  });
+};
+
 const GenomicsMap = () => {
+  const navigate = useNavigate();
+  const openAnalysis = (sample) => {
+    const run = latestCompletedRun(sample);
+    if (run) navigate(`/results/${run.pipeline_id}`);
+  };
   const [samples, setSamples] = useState([]);
   const [selectedSample, setSelectedSample] = useState(null);
   const [filters, setFilters] = useState({
@@ -17,6 +43,7 @@ const GenomicsMap = () => {
   });
   const [stats, setStats] = useState({
     totalSamples: 0,
+    samplesOnMap: 0,
     totalAMRGenes: 0,
     uniquePathogens: 0
   });
@@ -31,7 +58,13 @@ const GenomicsMap = () => {
         params: filters
       });
       setSamples(response.data.samples || []);
-      setStats(response.data.stats || {});
+      const totals = response.data.stats || {};
+      setStats({
+        totalSamples: totals.total_samples ?? 0,
+        samplesOnMap: totals.samples_on_map ?? 0,
+        totalAMRGenes: totals.total_amr_genes ?? 0,
+        uniquePathogens: totals.unique_pathogens ?? 0
+      });
     } catch (error) {
       console.error('Error loading samples:', error);
     }
@@ -142,7 +175,6 @@ const GenomicsMap = () => {
         <MapContainer
           center={[46.0, 25.0]} // Romania center
           zoom={7}
-          style={{ height: '100%', width: '100%' }}
         >
           <TileLayer
             url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
@@ -175,11 +207,13 @@ const GenomicsMap = () => {
                       <p><strong>AMR Genes:</strong> {sample.amr_genes_count || 0}</p>
                       <p><strong>Pathogens:</strong> {sample.pathogens_count || 0}</p>
                     </div>
-                    <button 
+                    <button
                       className="btn-view-details"
-                      onClick={() => window.location.href = `/sample/${sample.sample_id}`}
+                      onClick={() => openAnalysis(sample)}
+                      disabled={!latestCompletedRun(sample)}
+                      title={latestCompletedRun(sample) ? undefined : 'No completed analysis for this sample yet'}
                     >
-                      View Details
+                      {latestCompletedRun(sample) ? 'View Analysis' : 'No results yet'}
                     </button>
                   </div>
                 </Popup>
@@ -188,6 +222,16 @@ const GenomicsMap = () => {
           ))}
 
         </MapContainer>
+
+        {/* Samples without a location are counted above but cannot be placed on the map */}
+        {stats.totalSamples > stats.samplesOnMap && (
+          <div className="map-coverage" role="note">
+            <span><strong>{stats.samplesOnMap}</strong> of {stats.totalSamples} samples on the map</span>
+            <span className="map-coverage-detail">
+              {stats.totalSamples - stats.samplesOnMap} have no location
+            </span>
+          </div>
+        )}
 
         {/* Legend */}
         <div className="map-legend">
@@ -297,28 +341,40 @@ const GenomicsMap = () => {
                 </svg>
                 Pipeline Status
               </h3>
-              {selectedSample.pipeline_runs?.map(run => (
+              {(selectedSample.pipeline_runs || []).length === 0 && (
+                <p className="text-muted">This sample has not been analysed yet.</p>
+              )}
+              {(selectedSample.pipeline_runs || []).map(run => (
                 <div key={run.pipeline_id} className="pipeline-run">
                   <span className={`status-badge status-${run.status}`}>
-                    {run.status}
+                    {RUN_STATUS_LABELS[run.status] || run.status}
                   </span>
-                  <span className="run-id">#{run.pipeline_id}</span>
-                  <button 
+                  <span className="run-id">
+                    #{run.pipeline_id}
+                    {formatRunDate(run) && <span className="run-date">{formatRunDate(run)}</span>}
+                  </span>
+                  <button
                     className="btn-sm"
-                    onClick={() => window.location.href = `/results-viewer.html?id=${run.pipeline_id}`}
+                    onClick={() => navigate(
+                      run.status === 'completed'
+                        ? `/results/${run.pipeline_id}`
+                        : `/pipeline/${run.pipeline_id}/monitor`
+                    )}
+                    title={run.status === 'completed' ? 'Open the results of this run' : 'Open the pipeline monitor'}
                   >
-                    View
+                    {run.status === 'completed' ? 'Results' : 'Monitor'}
                   </button>
                 </div>
               ))}
             </section>
 
             <div className="sidebar-actions">
-              <button 
+              <button
                 className="btn-primary btn-block"
-                onClick={() => window.location.href = `/sample/${selectedSample.sample_id}`}
+                onClick={() => openAnalysis(selectedSample)}
+                disabled={!latestCompletedRun(selectedSample)}
               >
-                View Full Analysis
+                {latestCompletedRun(selectedSample) ? 'View Full Analysis' : 'No completed analysis yet'}
               </button>
             </div>
           </div>

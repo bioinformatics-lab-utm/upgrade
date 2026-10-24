@@ -4,6 +4,24 @@ import { useParams, useNavigate } from 'react-router-dom';
 import './PipelineMonitor.css';
 import api from '../services/api';
 
+const PHASES = {
+  queued: { label: 'Queued', note: 'Waiting for a free worker. Nothing has started yet.' },
+  preparing: { label: 'Preparing', note: 'Downloading the input files. Nextflow starts right after.' },
+  running: { label: 'Running', note: null },
+  completed: { label: 'Completed', note: null },
+  failed: { label: 'Failed', note: null },
+  cancelled: { label: 'Stopped', note: 'This run was stopped. Tasks that were running were shut down.' },
+};
+
+const formatElapsed = (fromIso, toIso) => {
+  if (!fromIso) return null;
+  const end = toIso ? new Date(toIso) : new Date();
+  const totalMinutes = Math.max(0, Math.floor((end - new Date(fromIso)) / 60000));
+  const hours = Math.floor(totalMinutes / 60);
+  const minutes = totalMinutes % 60;
+  return hours > 0 ? `${hours}h ${minutes}m` : `${minutes}m`;
+};
+
 const PipelineMonitor = ({ pipelineId: propPipelineId, onClose: propOnClose }) => {
   const { id } = useParams();
   const navigate = useNavigate();
@@ -23,6 +41,7 @@ const PipelineMonitor = ({ pipelineId: propPipelineId, onClose: propOnClose }) =
   const [autoRefresh, setAutoRefresh] = useState(true);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+  const [stopping, setStopping] = useState(false);
   const logViewerRef = useRef(null);
 
   // Load pipeline status
@@ -56,20 +75,38 @@ const PipelineMonitor = ({ pipelineId: propPipelineId, onClose: propOnClose }) =
     if (el) el.scrollTop = el.scrollHeight;
   };
 
+  const runStatus = status?.status;
+  const isActive = !status || runStatus === 'queued' || runStatus === 'running';
+
   useEffect(() => {
     loadStatus();
     loadLog();
-    
+
     if (autoRefresh) {
-      const statusInterval = setInterval(loadStatus, 3000); // Every 3 seconds
-      const logInterval = setInterval(loadLog, 5000); // Every 5 seconds
-      
+      // A finished run no longer changes; just check now and then
+      const statusInterval = setInterval(loadStatus, isActive ? 3000 : 30000);
+      const logInterval = setInterval(loadLog, isActive ? 5000 : 30000);
+
       return () => {
         clearInterval(statusInterval);
         clearInterval(logInterval);
       };
     }
-  }, [pipelineId, autoRefresh, logType]);
+  }, [pipelineId, autoRefresh, logType, isActive]);
+
+  const stopRun = async () => {
+    const what = runStatus === 'queued' ? 'It will be removed from the queue.' : 'Running tasks will be stopped.';
+    if (!window.confirm(`Stop pipeline #${pipelineId}? ${what}`)) return;
+    setStopping(true);
+    try {
+      await api.post(`/api/pipeline/runs/${pipelineId}/cancel`);
+      await loadStatus();
+    } catch (err) {
+      alert(err.response?.data?.message || err.response?.data?.error || 'Could not stop the pipeline');
+    } finally {
+      setStopping(false);
+    }
+  };
 
   useEffect(() => {
     scrollToBottom();
@@ -99,13 +136,29 @@ const PipelineMonitor = ({ pipelineId: propPipelineId, onClose: propOnClose }) =
   }
 
   const { summary, progress, processes, tasks } = status || {};
+  const phase = PHASES[status?.phase] || PHASES[runStatus] || null;
+  const elapsed = formatElapsed(status?.started_at, isActive ? null : status?.completed_at);
 
   return createPortal(
     <div className="pipeline-monitor-overlay" onClick={onClose}>
       <div className="pipeline-monitor" onClick={(e) => e.stopPropagation()}>
         <div className="monitor-header">
-          <h2>Pipeline #{pipelineId} Monitor</h2>
+          <div className="monitor-title">
+            <h2>Pipeline #{pipelineId} Monitor</h2>
+            {phase && (
+              <div className="monitor-run-state">
+                <span className={`monitor-phase phase-${status.phase || runStatus}`}>{phase.label}</span>
+                {elapsed && <span className="monitor-elapsed">{isActive ? `for ${elapsed}` : `took ${elapsed}`}</span>}
+                {status?.sample_name && <span className="monitor-sample">{status.sample_name}</span>}
+              </div>
+            )}
+          </div>
           <div className="monitor-controls">
+            {isActive && status && (
+              <button onClick={stopRun} className="btn-stop" disabled={stopping}>
+                {stopping ? 'Stopping…' : '■ Stop run'}
+              </button>
+            )}
             <label className="auto-refresh-toggle">
               <input
                 type="checkbox"
@@ -120,6 +173,12 @@ const PipelineMonitor = ({ pipelineId: propPipelineId, onClose: propOnClose }) =
         </div>
 
         <div className="monitor-body">
+        {(phase?.note || (runStatus === 'failed' && status?.error_message)) && (
+          <div className={`monitor-notice notice-${runStatus}`}>
+            {runStatus === 'failed' ? status.error_message : phase.note}
+          </div>
+        )}
+
         {/* Progress Summary */}
         {summary && (
           <div className="progress-summary">
@@ -145,9 +204,21 @@ const PipelineMonitor = ({ pipelineId: propPipelineId, onClose: propOnClose }) =
                 <span className="stat-label">Failed</span>
                 <span className="stat-value">{summary.failed}</span>
               </div>
+              {summary.aborted > 0 && (
+                <div className="stat aborted">
+                  <span className="stat-label">Stopped</span>
+                  <span className="stat-value">{summary.aborted}</span>
+                </div>
+              )}
+              {summary.not_started > 0 && (
+                <div className="stat aborted">
+                  <span className="stat-label">Not started</span>
+                  <span className="stat-value">{summary.not_started}</span>
+                </div>
+              )}
               <div className="stat total">
                 <span className="stat-label">Total</span>
-                <span className="stat-value">{summary.total}</span>
+                <span className="stat-value">{summary.total + (summary.not_started || 0)}</span>
               </div>
             </div>
           </div>
@@ -162,17 +233,24 @@ const PipelineMonitor = ({ pipelineId: propPipelineId, onClose: propOnClose }) =
                 <div
                   key={proc.name}
                   className={`process-card ${
+                    proc.pending ? 'pending' :
                     proc.failed > 0 ? 'failed' :
                     proc.running > 0 ? 'running' :
+                    proc.aborted > 0 ? 'aborted' :
                     proc.completed === proc.count ? 'completed' :
                     'pending'
                   }`}
                 >
                   <div className="process-name">{proc.name}</div>
                   <div className="process-stats">
-                    <span className="completed-count">{proc.completed}/{proc.count}</span>
+                    {proc.pending ? (
+                      <span className="pending-badge">Waiting</span>
+                    ) : (
+                      <span className="completed-count">{proc.completed}/{proc.count}</span>
+                    )}
                     {proc.failed > 0 && <span className="failed-badge">⚠ {proc.failed} failed</span>}
                     {proc.running > 0 && <span className="running-badge">▶ {proc.running} running</span>}
+                    {proc.aborted > 0 && <span className="aborted-badge">■ stopped</span>}
                   </div>
                 </div>
               ))}
@@ -221,7 +299,7 @@ const PipelineMonitor = ({ pipelineId: propPipelineId, onClose: propOnClose }) =
                 </thead>
                 <tbody>
                   {tasks.map((task) => (
-                    <tr key={task.task_id} className={`status-${task.status.toLowerCase()}`}>
+                    <tr key={task.task_id || task.name} className={`status-${task.status.toLowerCase()}`}>
                       <td className="task-id">{task.task_id}</td>
                       <td className="task-name">{task.name}</td>
                       <td className="task-status">

@@ -1,11 +1,14 @@
 """
 API routes for samples and genomics data
 """
+import json
+
 from sanic import Blueprint, response
 from sanic.log import logger
 from datetime import datetime, timedelta, date
 from auth import protected
 from authz import current_user_id
+from utils.timestamps import to_iso
 
 
 def serialize(obj):
@@ -15,7 +18,7 @@ def serialize(obj):
     if isinstance(obj, list):
         return [serialize(v) for v in obj]
     if isinstance(obj, (datetime, date)):
-        return obj.isoformat()
+        return to_iso(obj)
     return obj
 
 samples_bp = Blueprint('samples', url_prefix='/api/samples')
@@ -36,7 +39,10 @@ async def get_samples_for_map(request):
         sample_type = request.args.get('sampleType', 'all')
         has_amr = request.args.get('hasAMR', 'false').lower() == 'true'
 
-        where_clauses = ["s.owner_id = $1", "l.latitude IS NOT NULL", "l.longitude IS NOT NULL"]
+        # Filters shared by the markers and the stat cards. The cards cover all the
+        # user's matching samples, like the header's sample count; only the markers
+        # need a location (samples imported from SRA usually have none).
+        where_clauses = ["s.owner_id = $1"]
         params = [current_user_id(request)]
 
         if date_range != 'all':
@@ -46,8 +52,12 @@ async def get_samples_for_map(request):
                 where_clauses.append(f"s.collection_date >= ${len(params) + 1}")
                 params.append(cutoff_date)
 
-        if sample_type != 'all':
-            where_clauses.append(f"s.sequencing_platform = ${len(params) + 1}")
+        if sample_type in ('nanopore', 'illumina', 'pacbio'):
+            # The platform is stored inconsistently: 'nanopore' / 'Oxford Nanopore' in
+            # sequencing_platform, or only in sample_type when the platform is empty
+            where_clauses.append(
+                f"COALESCE(NULLIF(s.sequencing_platform, ''), s.sample_type) ILIKE '%' || ${len(params) + 1} || '%'"
+            )
             params.append(sample_type)
 
         if has_amr:
@@ -56,6 +66,7 @@ async def get_samples_for_map(request):
             )
 
         where_sql = " AND ".join(where_clauses)
+        map_where_sql = where_sql + " AND l.latitude IS NOT NULL AND l.longitude IS NOT NULL"
 
         pool = request.app.ctx.db_pool
         async with pool.acquire() as conn:
@@ -72,21 +83,29 @@ async def get_samples_for_map(request):
                     s.sample_type,
                     s.sequencing_platform,
                     s.temperature_celsius,
-                    COUNT(DISTINCT rg.rg_id)          AS amr_genes_count,
+                    -- distinct genes: a gene found again by a rerun (or on two contigs) counts once
+                    COUNT(DISTINCT rg.gene_name)       AS amr_genes_count,
                     COUNT(DISTINCT rg.gene_name)       AS unique_amr_genes,
-                    COUNT(DISTINCT dorg.organism_name)  AS pathogens_count,
-                    array_agg(
-                        DISTINCT jsonb_build_object(
+                    -- genera classified as (opportunistic) pathogens, as on the results page
+                    COUNT(DISTINCT dorg.organism_name) FILTER (
+                        WHERE dorg.risk_level IN ('high', 'medium')
+                    )                                   AS pathogens_count,
+                    -- asyncpg returns json as text; decoded below
+                    COALESCE(
+                        jsonb_agg(DISTINCT jsonb_build_object(
                             'pipeline_id', pr.pipeline_id,
-                            'status', pr.status
-                        )
-                    ) FILTER (WHERE pr.pipeline_id IS NOT NULL) AS pipeline_runs
+                            'status', pr.status,
+                            'started_at', pr.started_at,
+                            'completed_at', pr.completed_at
+                        )) FILTER (WHERE pr.pipeline_id IS NOT NULL),
+                        '[]'::jsonb
+                    )::text AS pipeline_runs
                 FROM samples s
                 LEFT JOIN locations l         ON s.location_id = l.location_id
                 LEFT JOIN resistance_genes rg ON s.sample_id   = rg.sample_id
                 LEFT JOIN detected_organisms dorg ON s.sample_id = dorg.sample_id
                 LEFT JOIN pipeline_runs pr    ON s.sample_id   = pr.sample_id
-                WHERE {where_sql}
+                WHERE {map_where_sql}
                 GROUP BY s.sample_id, l.latitude, l.longitude,
                          l.location_name, l.city, l.country
                 ORDER BY s.collection_date DESC NULLS LAST
@@ -99,6 +118,15 @@ async def get_samples_for_map(request):
                 d = dict(row)
                 if d.get('collection_date'):
                     d['collection_date'] = d['collection_date'].isoformat()
+                # Newest run first; json timestamps are naive UTC like the table's
+                d['pipeline_runs'] = sorted(
+                    json.loads(d['pipeline_runs'] or '[]'),
+                    key=lambda run: run['pipeline_id'], reverse=True
+                )
+                for run in d['pipeline_runs']:
+                    for key in ('started_at', 'completed_at'):
+                        if run.get(key) and not run[key].endswith(('Z', '+00:00')):
+                            run[key] += '+00:00'
                 for key in ('latitude', 'longitude', 'temperature_celsius'):
                     if d.get(key) is not None:
                         d[key] = float(d[key])
@@ -107,8 +135,13 @@ async def get_samples_for_map(request):
             stats = await conn.fetchrow(f"""
                 SELECT
                     COUNT(DISTINCT s.sample_id)       AS total_samples,
-                    COUNT(DISTINCT rg.rg_id)          AS total_amr_genes,
-                    COUNT(DISTINCT dorg.organism_name) AS unique_pathogens
+                    COUNT(DISTINCT s.sample_id) FILTER (
+                        WHERE l.latitude IS NOT NULL AND l.longitude IS NOT NULL
+                    )                                 AS samples_on_map,
+                    COUNT(DISTINCT s.sample_id::text || ':' || rg.gene_name) AS total_amr_genes,
+                    COUNT(DISTINCT dorg.organism_name) FILTER (
+                        WHERE dorg.risk_level IN ('high', 'medium')
+                    )                                  AS unique_pathogens
                 FROM samples s
                 LEFT JOIN locations l              ON s.location_id = l.location_id
                 LEFT JOIN resistance_genes rg      ON s.sample_id   = rg.sample_id
@@ -120,6 +153,7 @@ async def get_samples_for_map(request):
                 'samples': samples_list,
                 'stats': dict(stats) if stats else {
                     'total_samples': 0,
+                    'samples_on_map': 0,
                     'total_amr_genes': 0,
                     'unique_pathogens': 0,
                 },
@@ -130,7 +164,7 @@ async def get_samples_for_map(request):
         return response.json({
             'error': str(e),
             'samples': [],
-            'stats': {'total_samples': 0, 'total_amr_genes': 0, 'unique_pathogens': 0},
+            'stats': {'total_samples': 0, 'samples_on_map': 0, 'total_amr_genes': 0, 'unique_pathogens': 0},
         }, status=500)
 
 
@@ -172,7 +206,14 @@ async def get_sample_details(request, sample_id):
         pool = request.app.ctx.db_pool
         async with pool.acquire() as conn:
             sample = await conn.fetchrow(
-                "SELECT * FROM samples WHERE sample_id = $1 AND owner_id = $2",
+                """
+                SELECT s.*,
+                       l.location_name, l.city AS location_city, l.country AS location_country,
+                       l.latitude AS location_latitude, l.longitude AS location_longitude
+                FROM samples s
+                LEFT JOIN locations l ON l.location_id = s.location_id
+                WHERE s.sample_id = $1 AND s.owner_id = $2
+                """,
                 sample_id, current_user_id(request)
             )
             if not sample:
@@ -269,3 +310,37 @@ async def get_global_stats(request):
     except Exception as e:
         logger.error(f"Error fetching global stats: {e}")
         return response.json({'error': str(e)}, status=500)
+
+
+@samples_bp.route('/<sample_id:int>', methods=['DELETE'])
+@protected
+async def delete_sample(request, sample_id: int):
+    """
+    Delete one of the user's samples with all its pipeline runs, results and
+    files (MinIO bronze/silver/gold, local results). It disappears from the map,
+    the results list and every count. Runs that are queued or running must be
+    stopped first.
+
+    Response:
+        {"success": true, "sample_code": "...", "runs_deleted": 2,
+         "objects_removed": 70, "storage_errors": 0}
+    """
+    from minio_helper import get_minio_client
+    from services.sample_deletion import delete_sample as delete_sample_everywhere, SampleNotFound, SampleHasActiveRuns
+
+    try:
+        result = await delete_sample_everywhere(
+            request.app.ctx.db_pool, get_minio_client().client, current_user_id(request), sample_id
+        )
+        return response.json({'success': True, **result})
+    except SampleNotFound:
+        return response.json({'success': False, 'error': 'Sample not found'}, status=404)
+    except SampleHasActiveRuns as e:
+        return response.json({
+            'success': False,
+            'error': 'This sample has a pipeline that is queued or running. Stop it before deleting the sample.',
+            'pipeline_ids': e.pipeline_ids,
+        }, status=409)
+    except Exception as e:
+        logger.error(f"Error deleting sample {sample_id}: {e}", exc_info=True)
+        return response.json({'success': False, 'error': 'Internal server error'}, status=500)

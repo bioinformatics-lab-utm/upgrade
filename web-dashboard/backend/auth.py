@@ -227,7 +227,8 @@ async def create_user(conn, username: str, email: str, password: str, full_name:
 
 async def authenticate_user(conn, username: str, password: str):
     """
-    Authenticate user with username/password
+    Authenticate user with username/password; `username` may also be the
+    account's email (usernames cannot contain '@', so the two never collide)
     
     Returns:
         User dict if successful, None if authentication fails
@@ -236,7 +237,7 @@ async def authenticate_user(conn, username: str, password: str):
         SELECT user_id, username, email, password_hash, first_name, last_name, is_active,
                email_verified
         FROM users
-        WHERE username = $1 AND is_active = true
+        WHERE (username = $1 OR email = lower($1)) AND is_active = true
     """
     
     user = await conn.fetchrow(query, username)
@@ -267,7 +268,8 @@ async def authenticate_user(conn, username: str, password: str):
 async def get_user_by_id(conn, user_id: int):
     """Get user information by ID"""
     query = """
-        SELECT user_id, username, email, first_name, last_name, created_at, last_login
+        SELECT user_id, username, email, first_name, last_name, user_type, email_verified,
+               created_at, last_login, password_changed_at
         FROM users
         WHERE user_id = $1 AND is_active = true
     """
@@ -284,9 +286,77 @@ async def get_user_by_id(conn, user_id: int):
         'username': user['username'],
         'email': user['email'],
         'full_name': full_name,
+        'user_type': user['user_type'],
+        'email_verified': user['email_verified'],
         'created_at': user['created_at'].isoformat() if user['created_at'] else None,
-        'last_login': user['last_login'].isoformat() if user['last_login'] else None
+        'last_login': user['last_login'].isoformat() if user['last_login'] else None,
+        'password_changed_at': user['password_changed_at'].isoformat() if user['password_changed_at'] else None
     }
+
+
+async def update_user_profile(conn, user_id: int, full_name: str):
+    """
+    Update the editable profile fields of a user
+
+    Returns:
+        Updated user dict (same shape as get_user_by_id), None if user not found
+    """
+    # Split full_name into first_name and last_name
+    name_parts = (full_name or '').split(maxsplit=1)
+    first_name = name_parts[0] if name_parts else None
+    last_name = name_parts[1] if len(name_parts) > 1 else None
+
+    updated = await conn.fetchval(
+        """
+        UPDATE users
+        SET first_name = $1, last_name = $2, updated_at = CURRENT_TIMESTAMP
+        WHERE user_id = $3 AND is_active = true
+        RETURNING user_id
+        """,
+        first_name,
+        last_name,
+        user_id
+    )
+
+    if not updated:
+        return None
+
+    logger.info(f"Profile updated for user ID: {user_id}")
+    return await get_user_by_id(conn, user_id)
+
+
+async def change_user_password(conn, user_id: int, current_password: str, new_password: str) -> str:
+    """
+    Change a user's password after checking the current one
+
+    Returns:
+        One of: 'changed', 'invalid_current', 'not_found'
+    """
+    async with conn.transaction():
+        password_hash = await conn.fetchval(
+            "SELECT password_hash FROM users WHERE user_id = $1 AND is_active = true FOR UPDATE",
+            user_id
+        )
+
+        if not password_hash:
+            return 'not_found'
+
+        if not verify_password(current_password, password_hash):
+            logger.warning(f"Password change failed: incorrect current password - user ID {user_id}")
+            return 'invalid_current'
+
+        await conn.execute(
+            """
+            UPDATE users
+            SET password_hash = $1, password_changed_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
+            WHERE user_id = $2
+            """,
+            hash_password(new_password),
+            user_id
+        )
+
+    logger.info(f"Password changed for user ID: {user_id}")
+    return 'changed'
 
 
 async def update_last_login(conn, user_id: int):

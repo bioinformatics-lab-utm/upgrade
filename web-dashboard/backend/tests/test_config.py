@@ -42,48 +42,34 @@ class TestConfigClass:
 
 
 class TestConfigSecrets:
-    """Tests for secret handling"""
+    """Tests for _require_secret (Docker secret file first, then environment)"""
 
-    def test_get_secret_static_method(self):
-        """Test get_secret is a static method"""
-        from config import Config
-        assert callable(Config.get_secret)
+    def test_reads_docker_secret_file(self, tmp_path):
+        """Test a Docker secret file wins over the environment"""
+        from config import _require_secret
 
-    @patch('pathlib.Path.exists')
-    @patch('pathlib.Path.read_text')
-    def test_get_secret_from_file(self, mock_read, mock_exists):
-        """Test reading secret from Docker secret file"""
-        from config import Config
-        
-        mock_exists.return_value = True
-        mock_read.return_value = 'secret_value\n'
-        
-        result = Config.get_secret('test_secret')
-        
-        assert result == 'secret_value'
+        secret = tmp_path / 'test_secret'
+        secret.write_text('file_value\n')
 
-    @patch('pathlib.Path.exists')
+        with patch('config.Path', lambda p: secret if p == '/run/secrets/test_secret' else Path(p)), \
+             patch.dict(os.environ, {'TEST_SECRET': 'env_value'}):
+            assert _require_secret('test_secret', 'TEST_SECRET') == 'file_value'
+
     @patch.dict(os.environ, {'TEST_SECRET': 'env_value'})
-    def test_get_secret_from_env(self, mock_exists):
-        """Test fallback to environment variable"""
-        from config import Config
-        
-        mock_exists.return_value = False
-        
-        result = Config.get_secret('test_secret')
-        
-        assert result == 'env_value'
+    def test_falls_back_to_env(self):
+        """Test the environment variable is used without a secret file"""
+        from config import _require_secret
 
-    @patch('pathlib.Path.exists')
-    def test_get_secret_default(self, mock_exists):
-        """Test default value when secret not found"""
-        from config import Config
-        
-        mock_exists.return_value = False
-        
-        result = Config.get_secret('nonexistent_secret', 'default_value')
-        
-        assert result == 'default_value'
+        assert _require_secret('no_such_secret_file', 'TEST_SECRET') == 'env_value'
+
+    def test_missing_secret_exits(self):
+        """Test a missing secret stops the process instead of using a default"""
+        from config import _require_secret
+
+        with patch.dict(os.environ, {}, clear=False):
+            os.environ.pop('TEST_SECRET_MISSING', None)
+            with pytest.raises(SystemExit):
+                _require_secret('no_such_secret_file', 'TEST_SECRET_MISSING')
 
 
 class TestConfigMinio:

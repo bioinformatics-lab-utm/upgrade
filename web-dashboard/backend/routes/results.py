@@ -5,8 +5,9 @@ from sanic import Blueprint, response
 from sanic.response import json, file, html
 from pathlib import Path
 import os
+import asyncio
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 import time
 from functools import lru_cache
 
@@ -16,6 +17,8 @@ from functools import wraps
 
 from auth import protected
 from authz import current_user_id, user_owns_run_ref
+from utils.timestamps import to_iso
+from services.run_results import run_amr, run_taxonomy
 
 results_bp = Blueprint('results', url_prefix='/api/pipeline/results')
 
@@ -26,6 +29,12 @@ RESULTS_DIR = Path('/results')  # Mounted from host at /home/nicolaedrabcinski/u
 VIEWABLE_EXTENSIONS = {'.html', '.txt', '.log', '.tsv', '.csv', '.json', '.xml', '.gff', '.kreport'}
 IMAGE_EXTENSIONS = {'.png', '.jpg', '.jpeg', '.svg', '.gif'}
 PDF_EXTENSIONS = {'.pdf'}
+
+# Genus abundance per pipeline_id. A finished run's Kraken2 outputs never change,
+# and reading them can mean ~100 MB for a large metagenome, so compute once.
+_taxonomy_cache = {}
+_TAXONOMY_CACHE_SIZE = 200
+
 
 # OPTIMIZED: Simple in-memory cache for file listings
 # Avoids repeated os.walk() calls (100x faster for repeated requests)
@@ -115,7 +124,7 @@ def scan_run_directory(run_path):
                 'full_path': str(full_path),
                 'size': format_file_size(stat.st_size),
                 'size_bytes': stat.st_size,
-                'modified': datetime.fromtimestamp(stat.st_mtime).isoformat(),
+                'modified': to_iso(datetime.fromtimestamp(stat.st_mtime, timezone.utc)),
                 'extension': ext,
                 'viewable': viewable,
                 'is_image': ext in IMAGE_EXTENSIONS,
@@ -180,7 +189,7 @@ async def list_runs(request):
                         continue
 
                     status = db_run['status']
-                    date = db_run['started_at'].isoformat() if db_run['started_at'] else datetime.fromtimestamp(run_dir.stat().st_mtime).isoformat()
+                    date = to_iso(db_run['started_at']) if db_run['started_at'] else to_iso(datetime.fromtimestamp(run_dir.stat().st_mtime, timezone.utc))
                     location = db_run['location']
                     error_message = db_run['error_message']
                     
@@ -246,7 +255,9 @@ async def view_file(request, run_id):
             return json({'error': 'File not found'}, status=404)
         
         # Security check: ensure file is within results directory
-        if not str(full_path.resolve()).startswith(str(RESULTS_DIR.resolve())):
+        # Must stay inside this run's own directory: a "../" path into another
+        # run's directory would still be under RESULTS_DIR (and not owned by the user)
+        if not full_path.resolve().is_relative_to((RESULTS_DIR / run_id).resolve()):
             return json({'error': 'Access denied'}, status=403)
         
         ext = full_path.suffix.lower()
@@ -297,7 +308,9 @@ async def download_file(request, run_id):
             return json({'error': 'File not found'}, status=404)
         
         # Security check
-        if not str(full_path.resolve()).startswith(str(RESULTS_DIR.resolve())):
+        # Must stay inside this run's own directory: a "../" path into another
+        # run's directory would still be under RESULTS_DIR (and not owned by the user)
+        if not full_path.resolve().is_relative_to((RESULTS_DIR / run_id).resolve()):
             return json({'error': 'Access denied'}, status=403)
         
         return await file(
@@ -397,36 +410,6 @@ async def get_pipeline_summary(request, run_id):
     from minio import Minio
     from minio.error import S3Error
 
-    # Known genera with pathogenicity info
-    KNOWN_PATHOGENS = {
-        'Pseudomonas':    ('medium', 'opportunistic',  'Opportunistic pathogen, common in ICU and immunocompromised patients'),
-        'Klebsiella':     ('high',   'pathogen',       'Major cause of nosocomial pneumonia, UTI, and sepsis'),
-        'Escherichia':    ('medium', 'pathogen',       'Includes pathogenic strains (STEC, UPEC); also commensal'),
-        'Salmonella':     ('high',   'pathogen',       'Foodborne pathogen causing typhoid and gastroenteritis'),
-        'Staphylococcus': ('high',   'pathogen',       'Causes skin, wound infections; MRSA is multi-drug resistant'),
-        'Clostridium':    ('high',   'pathogen',       'Toxin-producing: C. difficile, C. perfringens, botulism'),
-        'Acinetobacter':  ('high',   'pathogen',       'Multi-drug resistant nosocomial pathogen; carbapenem resistance'),
-        'Enterococcus':   ('medium', 'pathogen',       'Nosocomial infections; VRE strains are a major concern'),
-        'Streptococcus':  ('medium', 'pathogen',       'Pneumonia, meningitis, pharyngitis depending on species'),
-        'Campylobacter':  ('high',   'pathogen',       'Most common foodborne bacterial pathogen'),
-        'Listeria':       ('high',   'pathogen',       'Listeriosis: meningitis, septicemia in immunocompromised'),
-        'Vibrio':         ('high',   'pathogen',       'Cholera (V. cholerae), wound infections (V. vulnificus)'),
-        'Helicobacter':   ('medium', 'pathogen',       'Gastric ulcers and gastric cancer risk'),
-        'Legionella':     ('high',   'pathogen',       "Legionnaires' disease — severe pneumonia"),
-        'Mycobacterium':  ('high',   'pathogen',       'Tuberculosis, leprosy, and non-tuberculous mycobacteria'),
-        'Enterobacter':   ('medium', 'opportunistic',  'Nosocomial infections; broad-spectrum beta-lactamase producer'),
-        'Stenotrophomonas': ('medium', 'opportunistic', 'Intrinsically resistant to many antibiotics; immunocompromised'),
-        'Burkholderia':   ('high',   'pathogen',       'B. cepacia in CF patients; B. pseudomallei causes melioidosis'),
-        'Bacteroides':    ('low',    'commensal',      'Normal gut flora; rarely causes intra-abdominal infections'),
-        'Prevotella':     ('low',    'commensal',      'Oral/gut commensal; occasional periodontal disease'),
-        'Fusobacterium':  ('medium', 'pathogen',       'Periodontal disease; associated with colorectal cancer'),
-        'Clostridiales':  ('medium', 'environmental',  'Gut microbiome members; some produce toxins'),
-        'Firmicutes':     ('low',    'environmental',  'Major gut phylum; largely commensal'),
-        'Proteobacteria': ('low',    'environmental',  'Diverse phylum; includes many environmental organisms'),
-        'Actinobacteria': ('low',    'environmental',  'Soil bacteria; some produce antibiotics'),
-        'Bacteroidetes':  ('low',    'environmental',  'Common gut phylum; largely beneficial'),
-    }
-
     def _assembly_quality_score(n50):
         """Log-scale quality score: N50=1k→20, 10k→60, 100k→80, 1M→100"""
         if not n50 or n50 <= 0:
@@ -445,12 +428,12 @@ async def get_pipeline_summary(request, run_id):
         # Resolve pipeline_id + sample_name from DB
         try:
             pid_int = int(run_id)
-            query = "SELECT pipeline_id, sample_name FROM pipeline_runs WHERE pipeline_id = $1"
+            query = "SELECT pipeline_id, sample_name, status, error_message FROM pipeline_runs WHERE pipeline_id = $1"
             async with db_pool.acquire() as conn:
                 row = await conn.fetchrow(query, pid_int)
         except ValueError:
             query = """
-                SELECT pipeline_id, sample_name FROM pipeline_runs
+                SELECT pipeline_id, sample_name, status, error_message FROM pipeline_runs
                 WHERE sample_name = $1 AND status = 'completed'
                 ORDER BY pipeline_id DESC LIMIT 1
             """
@@ -509,8 +492,8 @@ async def get_pipeline_summary(request, run_id):
                 'total_bases':   int(ns(r'Total bases:\s+([\d,]+)')),
                 'mean_qual':     mean_q,
                 'median_qual':   ns(r'Median read quality:\s+([\d.]+)'),
-                'mean_length':   int(ns(r'Mean read length:\s+([\d,]+)')),
-                'median_length': int(ns(r'Median read length:\s+([\d,]+)')),
+                'mean_length':   int(round(ns(r'Mean read length:\s+([\d,.]+)'))),
+                'median_length': int(round(ns(r'Median read length:\s+([\d,.]+)'))),
                 'n50_read':      int(ns(r'Read length N50:\s+([\d,]+)')),
                 'quality_score': min(100, round(mean_q * 5)),
             }
@@ -589,9 +572,8 @@ async def get_pipeline_summary(request, run_id):
                     bin_name = parts[0].strip()
                     if any(x in bin_name.lower() for x in ('lowdepth', 'unbinned', 'tooshort')):
                         continue
-                    # Also skip biologically implausible entries
-                    if cont > 100 or comp < 0:
-                        continue
+                    # CheckM contamination can exceed 100% (a bin mixing several
+                    # genomes): a real, very low quality bin, so it stays in.
                     strain_het = _safe_float(parts[13]) if len(parts) > 13 else 0.0
                     grade = ('high'   if comp >= 90 and cont <= 5  else
                              'medium' if comp >= 50 and cont <= 10 else 'low')
@@ -612,124 +594,58 @@ async def get_pipeline_summary(request, run_id):
                         mags['low_quality'] += 1
                 except (ValueError, IndexError) as e:
                     logger.warning(f"Skipping malformed CheckM line for {sample_name}: {e}")
-            mags['bins']       = sorted(bins, key=lambda x: -x['completeness'])[:20]
+            mags['bins']       = sorted(bins, key=lambda x: -x['completeness'])
             mags['total']      = len(bins)
             mags['total_bins'] = len(bins)
 
-        # ── Taxonomy: aggregate across all per-bin kraken2 reports ─────
-        genus_counts = {}
-        phylum_counts = {}
-        kraken_objs = minio.list_objects('genomic-silver', prefix=f"{prefix}06_kraken2/", recursive=False)
-        for obj in kraken_objs:
-            if not obj.object_name.endswith('_kraken2_report.txt'):
-                continue
-            raw = get_obj(obj.object_name)
-            if not raw:
-                continue
-            for line in raw.strip().split('\n'):
-                parts = line.strip().split('\t')
-                if len(parts) < 6:
-                    continue
-                try:
-                    pct  = float(parts[0])
-                    rank = parts[3].strip()
-                    name = parts[5].strip()
-                except (ValueError, IndexError):
-                    continue
-                if pct < 1.0 or not name:
-                    continue
-                if rank == 'G':
-                    genus_counts[name] = genus_counts.get(name, 0) + pct
-                elif rank == 'P':
-                    phylum_counts[name] = phylum_counts.get(name, 0) + pct
+        # ── Taxonomy and AMR (shared with the stored results: services/run_results.py)
+        taxonomy_data = _taxonomy_cache.get(pipeline_id)
+        if taxonomy_data is None:
+            taxonomy_data = await asyncio.to_thread(run_taxonomy, minio, prefix)
+            if len(_taxonomy_cache) >= _TAXONOMY_CACHE_SIZE:
+                _taxonomy_cache.pop(next(iter(_taxonomy_cache)))
+            _taxonomy_cache[pipeline_id] = taxonomy_data
 
-        pool = genus_counts if genus_counts else phylum_counts
-        total_abund = sum(pool.values()) or 1
-        organisms = [
-            {'name': k, 'abundance': round(v / total_abund * 100, 1)}
-            for k, v in sorted(pool.items(), key=lambda x: -x[1])[:15]
-        ]
-
-        # Enrich organisms → species entries with pathogenicity info
         species = []
         risk_assessment = {'high': 0, 'medium': 0, 'low': 0}
-        for org in organisms:
-            genus = org['name'].split()[0]
-            risk, patho, clinical = KNOWN_PATHOGENS.get(
-                genus, ('low', 'environmental', 'No specific clinical relevance identified'))
+        for org in taxonomy_data['organisms']:
             species.append({
-                'name':              org['name'],
-                'abundance':         org['abundance'],
-                'bin':               None,
-                'risk_level':        risk,
-                'pathogenicity':     patho,
-                'clinical_relevance': clinical,
+                'name':               org['name'],
+                'abundance':          org['abundance'],
+                'bin':                None,
+                'risk_level':         org['risk_level'],
+                'pathogenicity':      org['pathogenicity'],
+                'clinical_relevance': org['clinical_relevance'],
             })
-            risk_assessment[risk] += 1
+            risk_assessment[org['risk_level']] += 1
 
         taxonomy = {
-            'organisms':       organisms,
+            'organisms':       [{'name': o['name'], 'abundance': o['abundance']} for o in taxonomy_data['organisms']],
             'species':         species,
             'risk_assessment': risk_assessment,
+            # 'assembled_bases': % of all assembled bp; 'bin_reports': average of the bins' Kraken2 %
+            'abundance_basis': taxonomy_data['abundance_basis'],
+            'assembled_bp':    taxonomy_data['assembled_bp'],
         }
 
-        # ── AMR: ABRicate ──────────────────────────────────────────────
-        amr = {'total_genes': 0, 'categories': [], 'genes': [],
-               'high_risk_genes': 0, 'medium_risk_genes': 0}
-        cats = {}
-        gene_list = []
-        abricate_objs = minio.list_objects('genomic-silver', prefix=f"{prefix}07_amr/abricate/", recursive=True)
-        for obj in abricate_objs:
-            raw = get_obj(obj.object_name)
-            if not raw:
-                continue
-            for line in raw.strip().split('\n')[1:]:
-                if not line.strip():
-                    continue
-                parts = line.split('\t')
-                if len(parts) < 15:
-                    continue
-                gene       = parts[5].strip()
-                resistance = parts[14].strip()
-                pct_cov    = _safe_float(parts[9])
-                pct_id     = _safe_float(parts[10])
-                if not resistance or resistance in ('.', ''):
-                    continue
-                for cat in resistance.split(';'):
-                    cat = cat.strip()
-                    if cat:
-                        cats[cat] = cats.get(cat, 0) + 1
-                        amr['total_genes'] += 1
-                if gene and gene not in [g['gene'] for g in gene_list[-50:]]:
-                    antibiotic_class = resistance.split(';')[0].strip() if resistance else 'Unknown'
-                    gene_list.append({
-                        'gene':            gene,
-                        'resistance':      resistance,
-                        'antibiotic_class': antibiotic_class,
-                        'mechanism':       'Resistance gene',
-                        'coverage':        round(pct_cov, 1),
-                        'identity':        round(pct_id, 1),
-                    })
-                    if pct_id >= 90:
-                        amr['high_risk_genes'] += 1
-                    elif pct_id >= 70:
-                        amr['medium_risk_genes'] += 1
-
-        amr['categories'] = [
-            {'name': k, 'count': v}
-            for k, v in sorted(cats.items(), key=lambda x: -x[1])[:12]
-        ]
-        amr['genes'] = gene_list[:30]
+        amr_data = await asyncio.to_thread(run_amr, minio, prefix)
+        amr = {k: amr_data[k] for k in ('genes', 'total_genes', 'high_risk_genes', 'medium_risk_genes', 'categories')}
 
         # ── Risk scores ────────────────────────────────────────────────
-        total_genes = amr['total_genes']
-        amr_risk = min(100, round(total_genes / 5))
+        amr_risk = amr_data['risk_score']
         qual_score = qc.get('quality_score', 0)
+
+        # A run whose Nextflow produced nothing must not read as "analysed, found nothing"
+        results_available = bool(
+            qc or assembly or mags['total'] or amr['total_genes'] or taxonomy['organisms']
+        )
 
         return json({
             'sample_name':    sample_name,
             'pipeline_id':    pipeline_id,
-            'status':         'completed',
+            'status':         row['status'],
+            'error_message':  row['error_message'],
+            'results_available': results_available,
             'quality_score':  qual_score,
             'amr_risk_score': amr_risk,
             'qc':       qc,

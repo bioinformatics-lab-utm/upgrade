@@ -8,6 +8,8 @@ import PipelineMonitor from './components/PipelineMonitor';
 import Login from './components/Login';
 import Register from './components/Register';
 import VerifyEmail from './components/VerifyEmail';
+import Profile from './components/Profile';
+import NotificationBell from './components/NotificationBell';
 import ErrorBoundary from './components/ErrorBoundary';
 import API from './config/api';
 import api from './services/api';
@@ -56,13 +58,17 @@ function App() {
       setSystemStatus(prev => ({ ...prev, samples: 0, pipelines: 0 }));
       return;
     }
-    api.get('/api/pipeline/stats')
+    const loadCounts = () => api.get('/api/pipeline/stats')
       .then(({ data }) => setSystemStatus(prev => ({
         ...prev,
         samples: data.total_samples || 0,
         pipelines: data.active || 0
       })))
       .catch(() => setSystemStatus(prev => ({ ...prev, samples: 0, pipelines: 0 })));
+    loadCounts();
+    // Fired after a sample is deleted
+    window.addEventListener('upgrade:samples-changed', loadCounts);
+    return () => window.removeEventListener('upgrade:samples-changed', loadCounts);
   }, [user]);
 
   const handleLogout = () => {
@@ -75,6 +81,15 @@ function App() {
   const handleLogin = (userData, token) => {
     setUser(userData);
     // Token already stored by Login/Register components
+  };
+
+  // Keep the stored session in sync after the profile page changes it
+  const handleUserUpdate = (changes) => {
+    setUser(prev => {
+      const updated = { ...prev, ...changes };
+      localStorage.setItem('user', JSON.stringify(updated));
+      return updated;
+    });
   };
 
   // Hide navigation on auth pages
@@ -156,6 +171,8 @@ function App() {
             <Link
               to="/"
               className={`nav-link ${location.pathname === '/' ? 'active' : ''}`}
+              title="Surveillance Map"
+              aria-label="Surveillance Map"
             >
               <div className="nav-link-icon">
                 <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor">
@@ -172,6 +189,8 @@ function App() {
             <Link
               to="/pipeline"
               className={`nav-link ${location.pathname === '/pipeline' ? 'active' : ''}`}
+              title="Analysis Pipeline"
+              aria-label="Analysis Pipeline"
             >
               <div className="nav-link-icon">
                 <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor">
@@ -190,6 +209,8 @@ function App() {
             <Link
               to="/results"
               className={`nav-link ${location.pathname === '/results' ? 'active' : ''}`}
+              title="Results &amp; Reports"
+              aria-label="Results &amp; Reports"
             >
               <div className="nav-link-icon">
                 <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor">
@@ -208,19 +229,18 @@ function App() {
           <div className="nav-actions">
             {user ? (
               <>
-                <button className="action-btn" title="Notifications">
-                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor">
-                    <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
-                    <path d="M13.73 21a2 2 0 0 1-3.46 0" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
-                  </svg>
-                  <span className="notification-badge">0</span>
-                </button>
+                <NotificationBell key={user.user_id ?? user.username} />
                 <div className="user-profile">
-                  <div className="user-avatar" title={user.username}>
+                  <Link
+                    to="/profile"
+                    className={`user-avatar ${location.pathname === '/profile' ? 'active' : ''}`}
+                    title={`${user.username} — profile`}
+                    aria-label="Your profile"
+                  >
                     <span>{user.username.substring(0, 2).toUpperCase()}</span>
-                  </div>
+                  </Link>
                 </div>
-                <button className="action-btn" onClick={handleLogout} title="Logout">
+                <button className="action-btn logout-btn" onClick={handleLogout} title="Logout">
                   <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor">
                     <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" strokeWidth="2" strokeLinecap="round"/>
                     <polyline points="16 17 21 12 16 7" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
@@ -272,6 +292,13 @@ function App() {
                 <PipelineMonitor />
               </ProtectedRoute>
             } />
+            <Route path="/profile" element={
+              <ProtectedRoute>
+                <Profile user={user} onUserUpdate={handleUserUpdate} onLogout={handleLogout} />
+              </ProtectedRoute>
+            } />
+            {/* Unknown addresses (old links, typos) land on the map instead of a blank page */}
+            <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>
         </div>
       </main>

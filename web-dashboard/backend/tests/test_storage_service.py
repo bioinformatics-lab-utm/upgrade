@@ -13,10 +13,10 @@ class TestStorageService:
         """Test StorageService initialization"""
         from services.storage_service import StorageService
         
-        mock_client = Mock()
-        service = StorageService(mock_client)
+        helper = Mock()
+        service = StorageService(helper)
         
-        assert service.client is mock_client
+        assert service.client is helper
         assert service.bronze_bucket == 'genomic-bronze'
         assert service.silver_bucket == 'genomic-silver'
         assert service.gold_bucket == 'genomic-gold'
@@ -29,7 +29,7 @@ class TestStorageService:
         mock_client = Mock()
         mock_client.bucket_exists.return_value = False
         
-        service = StorageService(mock_client)
+        service = StorageService(Mock(client=mock_client))  # the service gets a MinIOHelper
         await service.ensure_buckets_exist()
         
         assert mock_client.bucket_exists.call_count == 3
@@ -43,7 +43,7 @@ class TestStorageService:
         mock_client = Mock()
         mock_client.bucket_exists.return_value = True
         
-        service = StorageService(mock_client)
+        service = StorageService(Mock(client=mock_client))  # the service gets a MinIOHelper
         await service.ensure_buckets_exist()
         
         mock_client.make_bucket.assert_not_called()
@@ -55,7 +55,7 @@ class TestStorageService:
         mock_client = Mock()
         mock_client.presigned_put_object.return_value = "https://minio.local/presigned"
         
-        service = StorageService(mock_client)
+        service = StorageService(Mock(client=mock_client))  # the service gets a MinIOHelper
         url = service.generate_presigned_url(
             bucket="genomic-bronze",
             object_path="samples/sample1.fastq"
@@ -71,7 +71,7 @@ class TestStorageService:
         mock_client = Mock()
         mock_client.presigned_put_object.return_value = "https://minio.local/presigned"
         
-        service = StorageService(mock_client)
+        service = StorageService(Mock(client=mock_client))  # the service gets a MinIOHelper
         url = service.generate_presigned_url(
             bucket="genomic-bronze",
             object_path="samples/sample1.fastq",
@@ -88,7 +88,7 @@ class TestStorageService:
         mock_client = Mock()
         mock_client.presigned_get_object.return_value = "https://minio.local/download"
         
-        service = StorageService(mock_client)
+        service = StorageService(Mock(client=mock_client))  # the service gets a MinIOHelper
         url = service.generate_download_url(
             bucket="genomic-silver",
             object_path="results/result1.json"
@@ -105,7 +105,7 @@ class TestStorageServiceBuckets:
         from services.storage_service import StorageService
         
         mock_client = Mock()
-        service = StorageService(mock_client)
+        service = StorageService(Mock(client=mock_client))  # the service gets a MinIOHelper
         
         assert 'bronze' in service.bronze_bucket
         assert 'silver' in service.silver_bucket
@@ -130,7 +130,7 @@ class TestStorageServiceErrorHandling:
             response=Mock()
         )
         
-        service = StorageService(mock_client)
+        service = StorageService(Mock(client=mock_client))  # the service gets a MinIOHelper
         
         with pytest.raises(S3Error):
             service.generate_presigned_url("bucket", "object")
@@ -151,7 +151,7 @@ class TestStorageServiceErrorHandling:
             response=Mock()
         )
         
-        service = StorageService(mock_client)
+        service = StorageService(Mock(client=mock_client))  # the service gets a MinIOHelper
         
         with pytest.raises(S3Error):
             await service.ensure_buckets_exist()

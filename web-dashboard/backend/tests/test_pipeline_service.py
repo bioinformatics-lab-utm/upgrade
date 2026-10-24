@@ -54,7 +54,22 @@ class TestPipelineServiceCreateRun:
         
         mock_pipeline_repo = AsyncMock()
         mock_sample_repo = AsyncMock()
-        
+
+        # create_pipeline_run checks for an active run on a pooled connection,
+        # inside a transaction: `async with pool.acquire() as conn, conn.transaction()`
+        conn = AsyncMock()
+        conn.fetchrow = AsyncMock(return_value=None)
+        transaction = MagicMock()
+        transaction.__aenter__ = AsyncMock(return_value=None)
+        transaction.__aexit__ = AsyncMock(return_value=False)
+        conn.transaction = Mock(return_value=transaction)
+        acquire = MagicMock()
+        acquire.__aenter__ = AsyncMock(return_value=conn)
+        acquire.__aexit__ = AsyncMock(return_value=False)
+        mock_pipeline_repo.pool = Mock()
+        mock_pipeline_repo.pool.acquire = Mock(return_value=acquire)
+        mock_pipeline_repo.conn = conn  # for tests that need an active run
+
         service = PipelineService(
             pipeline_repo=mock_pipeline_repo,
             sample_repo=mock_sample_repo
@@ -118,7 +133,7 @@ class TestPipelineServiceCreateRun:
         # Sample exists
         sample_repo.find_by_id.return_value = {"sample_id": 1}
         # Active pipeline exists
-        pipeline_repo.find_active_for_sample.return_value = {
+        pipeline_repo.conn.fetchrow.return_value = {
             "pipeline_id": 10,
             "status": "running"
         }
@@ -141,7 +156,7 @@ class TestPipelineServiceCreateRun:
         # Sample exists
         sample_repo.find_by_id.return_value = {"sample_id": 1, "sample_code": "S001"}
         # Active pipeline exists
-        pipeline_repo.find_active_for_sample.return_value = {
+        pipeline_repo.conn.fetchrow.return_value = {
             "pipeline_id": 10,
             "status": "running"
         }

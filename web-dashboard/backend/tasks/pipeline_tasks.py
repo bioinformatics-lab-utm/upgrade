@@ -13,8 +13,14 @@ from rq import Queue, get_current_job
 from rq.job import Job
 
 from config import config
+from utils.timestamps import to_iso  # RQ timestamps are naive UTC
 
 logger = logging.getLogger(__name__)
+
+# How often a running Nextflow checks whether the user cancelled the run
+CANCEL_POLL_SECONDS = 10
+# How long Nextflow gets to stop its tasks after SIGTERM before it is killed
+STOP_GRACE_SECONDS = 300
 
 
 class PipelineLogger:
@@ -75,6 +81,74 @@ class PipelineExecutor:
             logger.info(f"Pipeline {pipeline_id} status updated to: {status}")
         finally:
             await conn.close()
+
+    async def get_pipeline_status(self, pipeline_id: int) -> Optional[str]:
+        conn = await asyncpg.connect(config.DATABASE_URL)
+        try:
+            return await conn.fetchval("SELECT status FROM pipeline_runs WHERE pipeline_id = $1", pipeline_id)
+        finally:
+            await conn.close()
+
+    def is_cancelled(self, pipeline_id: int) -> bool:
+        """Whether the user stopped this run (POST /api/pipeline/runs/<id>/cancel)."""
+        import asyncio
+        try:
+            return asyncio.run(self.get_pipeline_status(pipeline_id)) == 'cancelled'
+        except Exception as e:
+            logger.warning(f"Pipeline {pipeline_id}: could not check for cancellation: {e}")
+            return False
+
+    def run_nextflow_cancellable(self, pipeline_id: int, cmd, cwd: str, env: Dict):
+        """
+        subprocess.run(cmd, capture_output=True, text=True, timeout=RQ_JOB_TIMEOUT)
+        that also stops Nextflow when the run is cancelled.
+
+        Every CANCEL_POLL_SECONDS the run's status is checked; once it is
+        'cancelled', Nextflow gets SIGTERM, which makes it stop its running tasks
+        (and their containers) before exiting. A SIGKILL here would leave those
+        containers running. If it has not exited STOP_GRACE_SECONDS later, it is killed.
+
+        Returns:
+            (CompletedProcess, cancelled)
+        """
+        import time
+        proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                                text=True, cwd=cwd, env=env)
+        deadline = time.monotonic() + config.RQ_JOB_TIMEOUT
+        cancelled = False
+        while True:
+            try:
+                # Retrying communicate() after a timeout keeps the output read so far
+                stdout, stderr = proc.communicate(timeout=CANCEL_POLL_SECONDS)
+                break
+            except subprocess.TimeoutExpired:
+                if time.monotonic() > deadline:
+                    proc.kill()
+                    stdout, stderr = proc.communicate()
+                    if cancelled:
+                        break
+                    raise subprocess.TimeoutExpired(cmd, config.RQ_JOB_TIMEOUT)
+                if not cancelled and self.is_cancelled(pipeline_id):
+                    cancelled = True
+                    logger.info(f"Pipeline {pipeline_id} cancelled by user - stopping Nextflow (pid {proc.pid})")
+                    proc.terminate()
+                    deadline = time.monotonic() + STOP_GRACE_SECONDS
+        return subprocess.CompletedProcess(cmd, proc.returncode, stdout, stderr), cancelled
+
+    def _finish_cancelled(self, pipeline_id: int, execution_id: Optional[int], local_input_dir: Optional[Path]) -> Dict:
+        """Clean up after a cancelled run. The status stays 'cancelled' (set by the API)."""
+        import asyncio
+        import shutil
+        if local_input_dir is not None and local_input_dir.exists():
+            shutil.rmtree(local_input_dir, ignore_errors=True)
+        if execution_id is not None:
+            asyncio.run(self.finalize_nextflow_execution(execution_id, success=False))
+        try:
+            asyncio.run(self.track_progress(pipeline_id, 'execution', 'cancelled', 'cancelled', 0))
+        except Exception as e:
+            logger.warning(f"Pipeline {pipeline_id}: could not record cancellation progress: {e}")
+        logger.info(f"Pipeline {pipeline_id} stopped after cancellation")
+        return {'success': False, 'pipeline_id': pipeline_id, 'cancelled': True}
 
     async def track_progress(
         self,
@@ -254,6 +328,8 @@ class PipelineExecutor:
             # Update status to running
             import asyncio
             asyncio.run(self.update_pipeline_status(pipeline_id, 'running'))
+            if self.is_cancelled(pipeline_id):
+                return self._finish_cancelled(pipeline_id, None, None)
 
             # Sync results_path in DB to match the actual output_dir
             async def _sync_results_path():
@@ -314,6 +390,14 @@ class PipelineExecutor:
                 'completed', 20
             ))
 
+            if not downloaded_files:
+                # Nextflow would run on an empty folder and exit 0, and the run would
+                # look like a finished analysis that found nothing
+                raise RuntimeError("No input FASTQ files for this run in the Bronze layer - nothing to analyse")
+
+            if self.is_cancelled(pipeline_id):
+                return self._finish_cancelled(pipeline_id, None, local_input_dir)
+
             # Use work directory for Nextflow (already in /tmp, accessible to Docker containers)
             input_dir = local_input_dir
 
@@ -366,13 +450,8 @@ class PipelineExecutor:
             # Use umask 0o022 so files are owner-writable, group/other readable
             old_umask = os.umask(0o022)
             try:
-                result = subprocess.run(
-                    nextflow_cmd,
-                    capture_output=True,
-                    text=True,
-                    timeout=config.RQ_JOB_TIMEOUT,
-                    cwd=str(work_dir),
-                    env=nextflow_env
+                result, cancelled = self.run_nextflow_cancellable(
+                    pipeline_id, nextflow_cmd, cwd=str(work_dir), env=nextflow_env
                 )
             finally:
                 os.umask(old_umask)
@@ -416,8 +495,16 @@ class PipelineExecutor:
             except Exception as e:
                 logger.warning(f"Failed to update log_file_path: {e}")
 
+            if cancelled:
+                return self._finish_cancelled(pipeline_id, execution_id, local_input_dir)
+
             # Parse results
             success = result.returncode == 0
+            # Exit code 0 without any QC output means Nextflow had no reads to process
+            no_output = success and not any((output_dir / '01_QC').rglob('*'))
+            if no_output:
+                success = False
+                logger.error(f"Pipeline {pipeline_id}: Nextflow exited 0 but produced no results")
 
             execution_result = {
                 'success': success,
@@ -536,7 +623,10 @@ class PipelineExecutor:
                 ))
                 logger.info(f"Pipeline {pipeline_id} completed successfully")
             else:
-                error_msg = result.stderr[-1000:] if result.stderr else "Unknown error"
+                error_msg = (
+                    "Nextflow finished without producing any results (no reads were processed)" if no_output
+                    else result.stderr[-1000:] if result.stderr else "Unknown error"
+                )
 
                 # Cleanup input dir for failed pipelines (Bronze still has the data)
                 try:
@@ -709,84 +799,20 @@ class PipelineExecutor:
                         f'genomic-silver/{sample_code}/{pipeline_id}/03_assembly/',
                     )
 
-            # ---- 3. detected_organisms (Kraken2) ----
-            taxonomy = summary.get('taxonomy') or {}
-            species = taxonomy.get('species') or []
-            if species:
-                existing = await conn.fetchval(
-                    'SELECT count(*) FROM detected_organisms WHERE sample_id=$1 AND pipeline_run_id=$2',
-                    sample_id, pipeline_id
+            # ---- 3/4. detected_organisms + resistance_genes ----
+            # From the run's Silver files, with the same code the results page uses,
+            # so the map and the emails count what the report shows.
+            # (summary.json's taxonomy is not usable: it lists Kraken2's root nodes.)
+            from minio_helper import get_minio_client
+            from services.run_results import store_run_results
+            stored = {'genes': 0, 'organisms': 0}
+            try:
+                stored = await store_run_results(
+                    conn, get_minio_client().client, sample_id, pipeline_id, f"{sample_code}/{pipeline_id}/"
                 )
-                if not existing:
-                    for sp in species:
-                        await conn.execute("""
-                            INSERT INTO detected_organisms (
-                                sample_id, pipeline_run_id, organism_name, scientific_name,
-                                taxonomy_rank, classification_tool,
-                                abundance, confidence_score
-                            ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
-                        """,
-                            sample_id, pipeline_id,
-                            sp.get('name', ''), sp.get('name', ''),
-                            'species', 'Kraken2',
-                            sp.get('abundance', 0.0),
-                            sp.get('abundance', 0.0),
-                        )
-
-            # ---- 3b. detected_organisms (read-based Kraken2, KRAKEN2_READS) ----
-            # Distinct classification_tool ('Kraken2_reads' vs 'Kraken2') so this stays
-            # separable from bin-based rows above - it's one classification per sample,
-            # not a per-bin list, and the only taxonomy available when assembly was
-            # skipped for low coverage.
-            taxonomy_reads = summary.get('taxonomy_reads')
-            if taxonomy_reads and taxonomy_reads.get('top_taxonomy'):
-                existing = await conn.fetchval(
-                    "SELECT count(*) FROM detected_organisms WHERE sample_id=$1 AND pipeline_run_id=$2 AND classification_tool='Kraken2_reads'",
-                    sample_id, pipeline_id
-                )
-                if not existing:
-                    await conn.execute("""
-                        INSERT INTO detected_organisms (
-                            sample_id, pipeline_run_id, organism_name, scientific_name,
-                            taxonomy_rank, classification_tool,
-                            read_count, confidence_score
-                        ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
-                    """,
-                        sample_id, pipeline_id,
-                        taxonomy_reads['top_taxonomy'], taxonomy_reads['top_taxonomy'],
-                        'species', 'Kraken2_reads',
-                        taxonomy_reads.get('num_reads', 0),
-                        taxonomy_reads.get('confidence', 0.0),
-                    )
-
-            # ---- 4. resistance_genes (Abricate) ----
-            amr = summary.get('amr') or {}
-            genes = amr.get('genes') or []
-            if genes:
-                existing = await conn.fetchval(
-                    'SELECT count(*) FROM resistance_genes WHERE sample_id=$1 AND pipeline_run_id=$2',
-                    sample_id, pipeline_id
-                )
-                if not existing:
-                    for g in genes:
-                        gene_str = g.get('gene', '')
-                        await conn.execute("""
-                            INSERT INTO resistance_genes (
-                                sample_id, pipeline_run_id, gene_name, gene_symbol,
-                                detection_tool, coverage, identity,
-                                predicted_resistance, resistance_mechanism,
-                                confidence_level, quality_score
-                            ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
-                        """,
-                            sample_id, pipeline_id,
-                            gene_str[:200], gene_str[:50],
-                            g.get('database', 'Abricate')[:100],
-                            g.get('coverage', 0.0), g.get('identity', 0.0),
-                            [g.get('antibiotic_class', '')] if g.get('antibiotic_class') else [],
-                            g.get('mechanism', '')[:200],
-                            g.get('risk_level', 'medium')[:50],
-                            g.get('identity', 0.0),
-                        )
+                logger.info(f"[pipeline={pipeline_id}] Stored {stored['genes']} AMR genes, {stored['organisms']} genera")
+            except Exception as e:
+                logger.warning(f"[pipeline={pipeline_id}] Could not store AMR/taxonomy results: {e}", exc_info=True)
 
             # ---- 5. Update pipeline_runs with scores + full summary JSON ----
             await conn.execute("""
@@ -808,7 +834,7 @@ class PipelineExecutor:
                 f"[pipeline={pipeline_id}] Results stored: "
                 f"QC={bool(qc.get('reads_count'))}, "
                 f"Assembly contigs={asm.get('contigs_count',0)}, "
-                f"Organisms={len(species)}, AMR genes={len(genes)}, "
+                f"Genera={stored['organisms']}, AMR genes={stored['genes']}, "
                 f"quality_score={summary.get('quality_score')}"
             )
 
@@ -935,12 +961,31 @@ def get_job_status(job_id: str) -> Dict:
     return {
         'job_id': job_id_str,
         'status': status_str,
-        'created_at': job.created_at.isoformat() if job.created_at else None,
-        'started_at': job.started_at.isoformat() if job.started_at else None,
-        'ended_at': job.ended_at.isoformat() if job.ended_at else None,
+        'created_at': to_iso(job.created_at),
+        'started_at': to_iso(job.started_at),
+        'ended_at': to_iso(job.ended_at),
         'result': result,
         'exc_info': exc_info
     }
+
+
+def dequeue_job(job_id: str) -> bool:
+    """
+    Take a job that has not started yet off the queue. Returns False when the job
+    is not waiting (already started, finished, or unknown to RQ). A started
+    pipeline job stops itself once its run is marked 'cancelled'
+    (PipelineExecutor.run_nextflow_cancellable).
+    """
+    try:
+        job = Job.fetch(job_id, connection=get_redis_connection())
+        if job.get_status(refresh=True) not in ('queued', 'deferred', 'scheduled'):
+            return False
+        job.cancel()
+        logger.info(f"Job {job_id} removed from the queue")
+        return True
+    except Exception as e:
+        logger.warning(f"Could not dequeue job {job_id}: {e}")
+        return False
 
 
 def cancel_job(job_id: str) -> bool:

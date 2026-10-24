@@ -68,6 +68,10 @@
   --footer-height: 48px;
   --sidebar-width: 280px;
   --content-max-width: 1920px;
+  /* Padding around the page content; pages that fill the viewport (the map) subtract it */
+  --content-pad-x: var(--space-2xl);
+  --content-pad-top: var(--space-lg);
+  --content-pad-bottom: var(--space-2xl);
   
   /* Spacing Scale */
   --space-xs: 4px;
@@ -549,6 +553,7 @@ button, a {
   font-size: var(--font-size-sm);
   color: white;
   cursor: pointer;
+  text-decoration: none;
   transition: all var(--transition-base);
   box-shadow: var(--shadow-glow);
 }
@@ -556,6 +561,12 @@ button, a {
 .user-avatar:hover {
   transform: scale(1.05);
   box-shadow: 0 0 25px rgba(0, 212, 255, 0.7);
+}
+
+.user-avatar:focus-visible,
+.user-avatar.active {
+  outline: 2px solid var(--border-accent);
+  outline-offset: 2px;
 }
 
 /* ===================================================================
@@ -566,7 +577,7 @@ button, a {
   position: relative;
   z-index: var(--z-base);
   overflow-y: auto;
-  padding: var(--space-lg) var(--space-2xl) var(--space-2xl);
+  padding: var(--content-pad-top) var(--content-pad-x) var(--content-pad-bottom);
 }
 
 .content-wrapper {
@@ -684,6 +695,14 @@ button, a {
 }
 
 @media (max-width: 968px) {
+  :root {
+    --content-pad-x: var(--space-lg);
+  }
+
+  .nav-container {
+    padding: 0 var(--space-lg);
+  }
+
   .nav-link-content {
     display: none;
   }
@@ -695,18 +714,77 @@ button, a {
 
 @media (max-width: 640px) {
   :root {
-    --nav-height: 64px;
+    --nav-height: 60px;
+    --footer-height: 40px;
+    --content-pad-x: var(--space-md);
+    --content-pad-top: var(--space-md);
+    --content-pad-bottom: var(--space-lg);
   }
-  
-  .app-content {
-    padding: var(--space-lg);
-  }
-  
+
   .nav-container {
-    padding: 0 var(--space-md);
+    padding: 0 12px;
+    gap: var(--space-sm);
+  }
+
+  .app-brand {
+    gap: var(--space-sm);
+  }
+
+  .brand-logo {
+    width: 32px;
+    height: 32px;
+  }
+
+  .brand-text h1 {
+    font-size: var(--font-size-xl);
+  }
+
+  .nav-links {
+    gap: var(--space-xs);
+  }
+
+  .nav-link {
+    padding: 6px;
+    border-radius: var(--radius-md);
+  }
+
+  .nav-actions {
+    gap: 6px;
+  }
+
+  .action-btn,
+  .user-avatar {
+    width: 36px;
+    height: 36px;
   }
   
-  .nav-actions .action-btn:first-child {
+  /* Sign out stays reachable from the profile page */
+  .nav-actions .logout-btn {
+    display: none;
+  }
+
+  .footer-content {
+    padding: 0 var(--space-md);
+    justify-content: center;
+  }
+
+  .footer-section {
+    gap: var(--space-sm);
+    white-space: nowrap;
+  }
+
+  .footer-section:last-child {
+    display: none;
+  }
+}
+
+@media (max-width: 420px) {
+  :root {
+    --content-pad-x: 12px;
+  }
+
+  /* Logo only: the wordmark does not fit next to the three sections */
+  .brand-text {
     display: none;
   }
 }

@@ -14,6 +14,8 @@ from auth import (
     generate_token,
     protected,
     get_user_by_id,
+    update_user_profile,
+    change_user_password,
     update_last_login,
     create_email_verification_token,
     verify_email_token,
@@ -26,6 +28,9 @@ from rate_limiter import rate_limit
 
 auth_bp = Blueprint('auth', url_prefix='/api/auth')
 logger = logging.getLogger(__name__)
+
+# first_name and last_name are VARCHAR(100) each
+MAX_FULL_NAME_LENGTH = 100
 
 # Email validation regex
 EMAIL_REGEX = re.compile(r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$')
@@ -172,7 +177,7 @@ async def login(request):
     
     Request body:
         {
-            "username": "johndoe",
+            "username": "johndoe",          (or the account email)
             "password": "SecurePass123!"
         }
     
@@ -196,14 +201,14 @@ async def login(request):
         password = data.get('password', '')
         
         if not username or not password:
-            raise BadRequest("Username and password are required")
+            raise BadRequest("Username (or email) and password are required")
         
         # Authenticate user
         async with request.app.ctx.db_pool.acquire() as conn:
             user = await authenticate_user(conn, username, password)
             
             if not user:
-                raise Unauthorized("Invalid username or password")
+                raise Unauthorized("Invalid username/email or password")
 
             if not user['email_verified']:
                 logger.warning(f"Login blocked: email not verified - {username}")
@@ -276,6 +281,115 @@ async def get_profile(request):
     except Exception as e:
         logger.error(f"Profile fetch error: {e}", exc_info=True)
         return json({'success': False, 'error': str(e)}, status=500)
+
+
+@auth_bp.route('/me', methods=['PUT'])
+@protected
+async def update_profile(request):
+    """
+    Update current user profile (requires authentication)
+
+    Username and email cannot be changed here.
+
+    Request body:
+        {"full_name": "John Doe"}
+
+    Response:
+        {"success": true, "message": "Profile updated", "user": {...}}
+    """
+    try:
+        data = request.json or {}
+        full_name = data.get('full_name')
+
+        if not isinstance(full_name, str):
+            raise BadRequest("Full name is required")
+
+        full_name = ' '.join(full_name.split())
+        if len(full_name) > MAX_FULL_NAME_LENGTH:
+            raise BadRequest(f"Full name must be at most {MAX_FULL_NAME_LENGTH} characters")
+
+        async with request.app.ctx.db_pool.acquire() as conn:
+            user = await update_user_profile(conn, request.ctx.user['user_id'], full_name)
+
+        if not user:
+            return json({'success': False, 'error': 'User not found'}, status=404)
+
+        return json({'success': True, 'message': 'Profile updated', 'user': user})
+
+    except BadRequest as e:
+        logger.warning(f"Profile update failed: {str(e)}")
+        return json({'success': False, 'error': str(e)}, status=400)
+
+    except Exception as e:
+        logger.error(f"Profile update error: {e}", exc_info=True)
+        return json({'success': False, 'error': 'Internal server error'}, status=500)
+
+
+@auth_bp.route('/change-password', methods=['POST'])
+@rate_limit("5/minute", error_message="Too many password change attempts. Please try again in a minute.")
+@protected
+async def change_password(request):
+    """
+    Change current user password (requires authentication)
+
+    Request body:
+        {
+            "current_password": "OldPass123!",
+            "new_password": "NewPass456!"
+        }
+
+    A wrong current password answers 400 (not 401), so the client does not
+    mistake it for an expired session and sign the user out.
+
+    Response:
+        {"success": true, "message": "Password changed"}
+        {"success": false, "error": "...", "code": "invalid_current_password"}
+    """
+    try:
+        data = request.json or {}
+        current_password = data.get('current_password') or ''
+        new_password = data.get('new_password') or ''
+
+        if not isinstance(current_password, str) or not isinstance(new_password, str):
+            raise BadRequest("Current password and new password are required")
+
+        if not current_password or not new_password:
+            raise BadRequest("Current password and new password are required")
+
+        # Validate password strength
+        is_valid, error_msg = validate_password(new_password)
+        if not is_valid:
+            raise BadRequest(error_msg)
+
+        if new_password == current_password:
+            raise BadRequest("New password must be different from the current password")
+
+        user_id = request.ctx.user['user_id']
+
+        async with request.app.ctx.db_pool.acquire() as conn:
+            status = await change_user_password(conn, user_id, current_password, new_password)
+
+        if status == 'not_found':
+            return json({'success': False, 'error': 'User not found'}, status=404)
+
+        if status == 'invalid_current':
+            return json({
+                'success': False,
+                'error': 'Current password is incorrect',
+                'code': 'invalid_current_password'
+            }, status=400)
+
+        logger.info(f"Password changed: {request.ctx.user['username']} (ID: {user_id})")
+
+        return json({'success': True, 'message': 'Password changed'})
+
+    except BadRequest as e:
+        logger.warning(f"Password change failed: {str(e)}")
+        return json({'success': False, 'error': str(e)}, status=400)
+
+    except Exception as e:
+        logger.error(f"Password change error: {e}", exc_info=True)
+        return json({'success': False, 'error': 'Internal server error'}, status=500)
 
 
 @auth_bp.route('/verify', methods=['GET'])

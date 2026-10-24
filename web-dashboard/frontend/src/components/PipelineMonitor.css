@@ -63,6 +63,84 @@
   flex-wrap: wrap;
 }
 
+.monitor-title {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+
+.monitor-run-state {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  font-size: 13px;
+  color: #64748b;
+}
+
+.monitor-phase {
+  padding: 2px 10px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 600;
+  background: #e2e8f0;
+  color: #475569;
+}
+
+.monitor-phase.phase-running { background: #fef3c7; color: #b45309; }
+.monitor-phase.phase-preparing,
+.monitor-phase.phase-queued { background: #e0e7ff; color: #4338ca; }
+.monitor-phase.phase-completed { background: #d1fae5; color: #047857; }
+.monitor-phase.phase-failed { background: #fee2e2; color: #b91c1c; }
+.monitor-phase.phase-cancelled { background: #f1f5f9; color: #475569; }
+
+.monitor-sample {
+  font-family: SFMono-Regular, Consolas, monospace;
+  overflow-wrap: anywhere;
+}
+
+.pipeline-monitor .btn-stop {
+  display: inline-flex;
+  align-items: center;
+  padding: 6px 12px;
+  border: 1px solid #fecaca;
+  border-radius: 6px;
+  background: #fef2f2;
+  color: #b91c1c;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.pipeline-monitor .btn-stop:hover:not(:disabled) {
+  background: #fee2e2;
+  border-color: #fca5a5;
+}
+
+.pipeline-monitor .btn-stop:disabled {
+  opacity: 0.6;
+  cursor: wait;
+}
+
+.monitor-notice {
+  margin: 16px 20px 0;
+  padding: 10px 14px;
+  border-radius: 8px;
+  background: #eef2ff;
+  color: #3730a3;
+  font-size: 13px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+  max-height: 120px;
+  overflow-y: auto;
+}
+
+.monitor-notice.notice-failed { background: #fef2f2; color: #991b1b; font-family: SFMono-Regular, Consolas, monospace; font-size: 12px; }
+.monitor-notice.notice-cancelled { background: #f1f5f9; color: #475569; }
+
 @media (max-width: 768px) {
   .monitor-header {
     flex-direction: column;
@@ -179,6 +257,7 @@
 .pipeline-monitor .stat.pending { border-left-color: #6b7280; }
 .pipeline-monitor .stat.failed { border-left-color: #ef4444; }
 .pipeline-monitor .stat.total { border-left-color: #3b82f6; }
+.pipeline-monitor .stat.aborted { border-left-color: #94a3b8; }
 
 .pipeline-monitor .stat-label {
   display: block;
@@ -248,7 +327,8 @@
 .process-card.completed { border-left-color: #10b981; }
 .process-card.running { border-left-color: #f59e0b; animation: pulse 2s infinite; }
 .process-card.failed { border-left-color: #ef4444; }
-.process-card.pending { border-left-color: #6b7280; }
+.process-card.pending { border-left-color: #cbd5e1; border-style: dashed; border-left-style: solid; opacity: 0.75; }
+.process-card.aborted { border-left-color: #94a3b8; }
 
 @media (max-width: 768px) {
   .processes-grid {
@@ -289,7 +369,7 @@
   color: #64748b;
 }
 
-.failed-badge, .running-badge {
+.failed-badge, .running-badge, .pending-badge, .aborted-badge {
   padding: 2px 6px;
   border-radius: 4px;
   font-size: 10px;
@@ -304,6 +384,16 @@
 .running-badge {
   background: #fef3c7;
   color: #d97706;
+}
+
+.pending-badge {
+  background: #f1f5f9;
+  color: #64748b;
+}
+
+.aborted-badge {
+  background: #e2e8f0;
+  color: #475569;
 }
 
 /* Log Viewer */
@@ -530,4 +620,66 @@
 .tasks-table-container::-webkit-scrollbar-thumb:hover,
 .monitor-body::-webkit-scrollbar-thumb:hover {
   background: #94a3b8;
+}
+
+/* Phones: the monitor takes the whole screen instead of floating as a dialog */
+@media (max-width: 640px) {
+  .pipeline-monitor-overlay {
+    padding: 0;
+    align-items: stretch;
+  }
+
+  .pipeline-monitor {
+    max-width: none;
+    max-height: none;
+    height: 100vh;
+    height: 100dvh;
+    border-radius: 0;
+  }
+
+  .monitor-header {
+    padding: 12px 16px;
+  }
+
+  .monitor-header h2 {
+    font-size: 16px;
+  }
+
+  .progress-summary,
+  .processes-section,
+  .log-section,
+  .tasks-section {
+    padding: 16px;
+  }
+
+  .summary-stats {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 8px;
+  }
+
+  .pipeline-monitor .stat {
+    padding: 8px;
+    min-width: 0;
+  }
+
+  .processes-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .process-card {
+    min-width: 0;
+  }
+
+  .process-name {
+    overflow-wrap: anywhere;
+  }
+
+  .log-controls {
+    flex: 1 1 auto;
+    justify-content: flex-end;
+  }
+
+  .log-type-select {
+    min-width: 0;
+  }
 }

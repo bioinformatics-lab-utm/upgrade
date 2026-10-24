@@ -211,7 +211,8 @@ services:
     - SANIC_PORT=${SANIC_PORT}
     - DEBUG=${SANIC_DEBUG}
     - AUTO_RELOAD=${SANIC_AUTO_RELOAD}
-    - FRONTEND_URL=http://localhost:${GEO_DASHBOARD_FRONTEND_PORT}
+    # Public address of the dashboard, used for the links in emails
+    - FRONTEND_URL=${FRONTEND_URL:-http://localhost:${GEO_DASHBOARD_FRONTEND_PORT}}
     - JWT_SECRET=${JWT_SECRET}
     - SMTP_HOST=${SMTP_HOST:-smtp.gmail.com}
     - SMTP_PORT=${SMTP_PORT:-587}

@@ -27,20 +27,20 @@ class TestAuditContext:
         assert mock_conn.execute.call_count >= 4
 
     @pytest.mark.asyncio
-    async def test_set_context_escapes_user_agent(self):
-        """Test that user_agent single quotes are escaped"""
+    async def test_set_context_passes_user_agent_as_parameter(self):
+        """Test the user agent is a bound parameter, never spliced into the SQL"""
         from middleware.audit_middleware import AuditContext
-        
+
         mock_conn = AsyncMock()
-        
+
         await AuditContext.set_context(
             mock_conn,
             user_agent="test'quote"
         )
-        
-        # Should escape single quotes
-        calls = [str(call) for call in mock_conn.execute.call_args_list]
-        assert any("test''quote" in call for call in calls)
+
+        query, value = mock_conn.execute.await_args.args
+        assert "test'quote" not in query
+        assert value == "test'quote"
 
     @pytest.mark.asyncio
     async def test_set_context_handles_error(self):

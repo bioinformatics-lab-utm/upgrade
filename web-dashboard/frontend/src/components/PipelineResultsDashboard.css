@@ -992,3 +992,452 @@ body, html {
     grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
   }
 }
+
+/* ========================================
+   Small screens
+   Scoped to .pipeline-dashboard: several of these class names (.stat-card,
+   .dashboard-header, .info-grid, ...) are reused by other pages' stylesheets.
+   ======================================== */
+.pipeline-dashboard .info-item,
+.pipeline-dashboard .chart-card,
+.pipeline-dashboard .metric-card,
+.pipeline-dashboard .stat-card {
+  min-width: 0;
+}
+
+.pipeline-dashboard .info-value,
+.pipeline-dashboard .stat-value,
+.pipeline-dashboard .sample-id {
+  overflow-wrap: anywhere;
+}
+
+@media (max-width: 1024px) {
+  .pipeline-dashboard .header-content {
+    align-items: center;
+    text-align: center;
+  }
+
+  .pipeline-dashboard .metrics-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  /* All six tabs fit on a tablet at this size */
+  .pipeline-dashboard .dashboard-tabs {
+    gap: 6px;
+  }
+
+  .pipeline-dashboard .tab-button {
+    padding: 12px;
+    font-size: 14px;
+  }
+
+  .pipeline-dashboard .table-card {
+    padding: 20px;
+  }
+
+  .pipeline-dashboard .data-table th,
+  .pipeline-dashboard .data-table td {
+    padding: 12px 14px;
+  }
+}
+
+/* Below tablet width the tab strip scrolls sideways; fade its right edge to show there is more */
+@media (max-width: 767px) {
+  .pipeline-dashboard .dashboard-tabs {
+    padding-right: 36px;
+    -webkit-mask-image: linear-gradient(to right, #000 calc(100% - 36px), transparent);
+    mask-image: linear-gradient(to right, #000 calc(100% - 36px), transparent);
+  }
+}
+
+@media (max-width: 640px) {
+  .pipeline-dashboard {
+    min-height: 0;
+    padding-bottom: 24px;
+  }
+
+  .pipeline-dashboard .dashboard-header {
+    padding: 20px 0 44px;
+  }
+
+  .pipeline-dashboard .header-content {
+    padding: 0 16px;
+    gap: 14px;
+  }
+
+  .pipeline-dashboard .header-title h1 {
+    font-size: 24px;
+    margin-bottom: 6px;
+  }
+
+  .pipeline-dashboard .metrics-grid,
+  .pipeline-dashboard .dashboard-tabs,
+  .pipeline-dashboard .tab-content {
+    padding: 0 10px;
+  }
+
+  .pipeline-dashboard .metrics-grid {
+    gap: 10px;
+    margin: -30px auto 20px;
+  }
+
+  .pipeline-dashboard .metric-card {
+    padding: 14px;
+  }
+
+  .pipeline-dashboard .metric-label {
+    font-size: 11px;
+    margin-bottom: 6px;
+  }
+
+  .pipeline-dashboard .metric-value {
+    font-size: 30px;
+    margin-bottom: 8px;
+  }
+
+  .pipeline-dashboard .metric-detail {
+    font-size: 12px;
+  }
+
+  .pipeline-dashboard .metric-bar {
+    margin-top: 8px;
+  }
+
+  .pipeline-dashboard .risk-badge {
+    padding: 4px 10px;
+    font-size: 10px;
+  }
+
+  .pipeline-dashboard .dashboard-tabs {
+    gap: 8px;
+    margin-bottom: 16px;
+    padding-right: 36px;
+  }
+
+  .pipeline-dashboard .tab-button {
+    padding: 10px 16px;
+    font-size: 13px;
+  }
+
+  .pipeline-dashboard .overview-grid,
+  .pipeline-dashboard .mags-top-grid {
+    gap: 12px;
+  }
+
+  .pipeline-dashboard .chart-card,
+  .pipeline-dashboard .info-card,
+  .pipeline-dashboard .table-card {
+    padding: 16px;
+  }
+
+  .pipeline-dashboard .chart-card h3,
+  .pipeline-dashboard .info-card h3,
+  .pipeline-dashboard .table-card h3 {
+    font-size: 17px;
+    margin-bottom: 12px;
+  }
+
+  .pipeline-dashboard .info-grid,
+  .pipeline-dashboard .info-grid-wide {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 14px;
+  }
+
+  .pipeline-dashboard .info-value {
+    font-size: 18px;
+  }
+
+  .pipeline-dashboard .stats-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 10px;
+    margin-top: 16px;
+  }
+
+  .pipeline-dashboard .stat-card {
+    padding: 14px 10px;
+  }
+
+  .pipeline-dashboard .stat-label {
+    font-size: 10px;
+    margin-bottom: 6px;
+  }
+
+  .pipeline-dashboard .stat-value {
+    font-size: 26px;
+  }
+
+  .pipeline-dashboard .gauge-grid {
+    grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+    gap: 10px;
+  }
+
+  .pipeline-dashboard .gauge-card {
+    padding: 14px;
+  }
+
+  .pipeline-dashboard .gauge-value {
+    font-size: 22px;
+  }
+
+  .pipeline-dashboard .table-card {
+    margin-top: 16px;
+  }
+
+  /* Wide tables scroll inside their card instead of squeezing every column */
+  .pipeline-dashboard .data-table {
+    min-width: 560px;
+    font-size: 13px;
+  }
+
+  .pipeline-dashboard .data-table th,
+  .pipeline-dashboard .data-table td {
+    padding: 10px 12px;
+  }
+
+  .pipeline-dashboard .empty-state {
+    padding: 40px 16px;
+  }
+
+  .pipeline-dashboard .empty-icon {
+    font-size: 44px;
+  }
+
+  .pipeline-dashboard .recharts-legend-wrapper {
+    padding-top: 8px !important;
+  }
+
+  .pipeline-dashboard .recharts-legend-item-text {
+    font-size: 12px !important;
+  }
+
+  .dashboard-error .error-actions {
+    flex-wrap: wrap;
+    justify-content: center;
+  }
+}
+
+/* ===== PDF export =====
+   The report is laid out at a fixed desktop width so the PDF looks the same from
+   any screen; media queries follow the viewport, so the grids are pinned here. */
+.btn-pdf {
+  background: white;
+  color: #1e40af;
+  padding: 10px 20px;
+  font-size: 14px;
+  font-weight: 700;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.12);
+}
+
+.btn-pdf:hover:not(:disabled) {
+  transform: translateY(-2px);
+}
+
+.btn-pdf:disabled {
+  opacity: 0.75;
+  cursor: wait;
+}
+
+.header-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.pdf-report {
+  /* no mobile font boosting: the PDF is measured and captured at these sizes */
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 1000px;
+  min-height: 0;
+  padding: 0;
+  background: #ffffff;
+  z-index: 1;
+}
+
+.pdf-report .metrics-grid {
+  grid-template-columns: repeat(4, 1fr) !important;
+  margin: 0 !important;
+  padding: 0;
+  max-width: none;
+}
+
+.pdf-report .tab-content {
+  padding: 0;
+  max-width: none;
+}
+
+.pdf-report .overview-grid,
+.pdf-report .mags-top-grid {
+  grid-template-columns: 1fr !important;
+}
+
+.pdf-report .overview-grid > * {
+  grid-column: auto !important;
+  grid-row: auto !important;
+}
+
+.pdf-report .stats-grid,
+.pdf-report .gauge-grid {
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)) !important;
+  margin-top: 0;
+}
+
+.pdf-report .info-grid { grid-template-columns: repeat(2, 1fr) !important; }
+.pdf-report .info-grid-wide { grid-template-columns: repeat(3, 1fr) !important; }
+
+.pdf-report .table-wrapper {
+  overflow: visible;
+  max-height: none;
+}
+
+.pdf-report .metric-card,
+.pdf-report .chart-card,
+.pdf-report .info-card,
+.pdf-report .table-card,
+.pdf-report .stat-card,
+.pdf-report .gauge-card {
+  box-shadow: none;
+  transform: none !important;
+  border: 1px solid #e2e8f0;
+}
+
+.pdf-cover {
+  padding: 8px 0 24px;
+  color: #0f172a;
+}
+
+.pdf-brand {
+  font-size: 30px;
+  font-weight: 800;
+  color: #0052ff;
+  letter-spacing: -0.5px;
+}
+
+.pdf-brand-sub {
+  margin-top: 2px;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  color: #94a3b8;
+}
+
+.pdf-cover h1 {
+  margin-top: 36px;
+  font-size: 34px;
+  font-weight: 800;
+  color: #0f172a;
+}
+
+.pdf-cover-sample {
+  margin-top: 6px;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 18px;
+  color: #475569;
+}
+
+.pdf-details {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 0 32px;
+  margin-top: 28px;
+  border-top: 1px solid #e2e8f0;
+}
+
+.pdf-details > div {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 10px 0;
+  border-bottom: 1px solid #e2e8f0;
+  font-size: 14px;
+}
+
+.pdf-details dt {
+  color: #64748b;
+}
+
+.pdf-details dd {
+  font-weight: 600;
+  color: #0f172a;
+  text-align: right;
+}
+
+.pdf-section-title {
+  margin: 8px 0 0;
+  padding: 10px 0 8px;
+  font-size: 22px;
+  font-weight: 800;
+  color: #1e40af;
+  border-bottom: 2px solid #1e40af;
+}
+
+.pdf-export-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 6000;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+  background: rgba(248, 250, 252, 0.97);
+  color: #334155;
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.pdf-export-error {
+  position: fixed;
+  left: 50%;
+  bottom: calc(var(--footer-height, 48px) + 16px);
+  transform: translateX(-50%);
+  z-index: 6000;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  max-width: calc(100vw - 32px);
+  padding: 12px 16px;
+  border-radius: 10px;
+  background: #fef2f2;
+  color: #991b1b;
+  border: 1px solid #fecaca;
+  font-size: 14px;
+}
+
+.pdf-export-error button {
+  background: none;
+  border: none;
+  font-size: 18px;
+  color: inherit;
+  cursor: pointer;
+}
+
+/* html2canvas cannot paint gradient-clipped text (it draws the gradient box);
+   use the gradients' main colour instead */
+.pdf-report .metric-card .metric-value {
+  background: none !important;
+  -webkit-text-fill-color: currentColor !important;
+}
+.pdf-report .metric-card.quality .metric-value { color: #2563eb; }
+.pdf-report .metric-card.amr .metric-value { color: #dc2626; }
+.pdf-report .metric-card.mags .metric-value { color: #059669; }
+.pdf-report .metric-card.genes .metric-value { color: #7c3aed; }
+
+/* Run without any Nextflow result files */
+.empty-state.no-results {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  margin-top: 24px;
+  padding: 56px 24px;
+  color: #0f172a;
+}
+
+.empty-state.no-results p:first-of-type {
+  font-size: 18px;
+  font-weight: 700;
+}

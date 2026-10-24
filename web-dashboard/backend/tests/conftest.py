@@ -17,6 +17,11 @@ import json
 # Add the parent directory to path for imports
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
+# config.py stops the process at import when these secrets are missing; the
+# tests never connect to the services, so placeholders are enough
+for _secret_var in ('POSTGRES_PASSWORD', 'REDIS_PASSWORD', 'MINIO_ROOT_USER', 'MINIO_ROOT_PASSWORD'):
+    os.environ.setdefault(_secret_var, 'test')
+
 
 # ============================================
 # Mock Database Connection Fixtures

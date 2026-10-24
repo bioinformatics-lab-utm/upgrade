@@ -84,3 +84,136 @@ class TestAuthRouteLogger:
         from routes.auth import logger
         import logging
         assert isinstance(logger, logging.Logger)
+
+
+def _authed_request(body):
+    """Mock request carrying a valid JWT for user 7 and a usable db pool"""
+    from auth import generate_token
+
+    token = generate_token(user_id=7, username="johndoe", email="john@example.com")
+
+    request = Mock()
+    request.headers = {"Authorization": f"Bearer {token}"}
+    request.ctx = Mock()
+    request.json = body
+
+    acquire = Mock()
+    acquire.__aenter__ = AsyncMock(return_value=AsyncMock())
+    acquire.__aexit__ = AsyncMock(return_value=False)
+    request.app.ctx.db_pool.acquire = Mock(return_value=acquire)
+    return request
+
+
+def _body(response):
+    import json
+    return json.loads(response.body)
+
+
+class TestChangePasswordRoute:
+    """Tests for POST /api/auth/change-password"""
+
+    @pytest.mark.asyncio
+    async def test_requires_authentication(self):
+        """Test the route rejects requests without a token"""
+        from routes.auth import change_password
+        from sanic.exceptions import Unauthorized
+
+        request = Mock()
+        request.headers = {}
+        request.ctx = Mock()
+
+        with pytest.raises(Unauthorized):
+            await change_password(request)
+
+    @pytest.mark.asyncio
+    async def test_changes_password(self):
+        """Test a valid request changes the password of the token's user"""
+        from routes.auth import change_password
+
+        request = _authed_request({"current_password": "OldPass123!", "new_password": "NewPass456!"})
+
+        with patch('routes.auth.change_user_password', new=AsyncMock(return_value='changed')) as change:
+            response = await change_password(request)
+
+        assert response.status == 200
+        assert _body(response)['success'] is True
+        assert change.await_args.args[1:] == (7, "OldPass123!", "NewPass456!")
+
+    @pytest.mark.asyncio
+    async def test_wrong_current_password_is_400_not_401(self):
+        """Test a wrong current password does not look like an expired session"""
+        from routes.auth import change_password
+
+        request = _authed_request({"current_password": "WrongPass123!", "new_password": "NewPass456!"})
+
+        with patch('routes.auth.change_user_password', new=AsyncMock(return_value='invalid_current')):
+            response = await change_password(request)
+
+        assert response.status == 400
+        assert _body(response)['code'] == 'invalid_current_password'
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("body", [
+        {},
+        {"current_password": "OldPass123!"},
+        {"current_password": "OldPass123!", "new_password": "weak"},
+        {"current_password": "OldPass123!", "new_password": "OldPass123!"},
+        {"current_password": "OldPass123!", "new_password": 12345678},
+    ])
+    async def test_rejects_invalid_input(self, body):
+        """Test missing, weak, unchanged or non-string passwords never reach the database"""
+        from routes.auth import change_password
+
+        request = _authed_request(body)
+
+        with patch('routes.auth.change_user_password', new=AsyncMock()) as change:
+            response = await change_password(request)
+
+        assert response.status == 400
+        assert _body(response)['success'] is False
+        change.assert_not_awaited()
+
+
+class TestUpdateProfileRoute:
+    """Tests for PUT /api/auth/me"""
+
+    @pytest.mark.asyncio
+    async def test_updates_full_name(self):
+        """Test the full name is normalized and saved for the token's user"""
+        from routes.auth import update_profile
+
+        request = _authed_request({"full_name": "  John   Doe "})
+        updated = {'user_id': 7, 'username': 'johndoe', 'full_name': 'John Doe'}
+
+        with patch('routes.auth.update_user_profile', new=AsyncMock(return_value=updated)) as update:
+            response = await update_profile(request)
+
+        assert response.status == 200
+        assert _body(response)['user'] == updated
+        assert update.await_args.args[1:] == (7, "John Doe")
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("body", [{}, {"full_name": None}, {"full_name": "x" * 101}])
+    async def test_rejects_invalid_input(self, body):
+        """Test a missing or too long name is rejected"""
+        from routes.auth import update_profile
+
+        request = _authed_request(body)
+
+        with patch('routes.auth.update_user_profile', new=AsyncMock()) as update:
+            response = await update_profile(request)
+
+        assert response.status == 400
+        update.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_unknown_user(self):
+        """Test a deleted or deactivated user gets 404"""
+        from routes.auth import update_profile
+
+        request = _authed_request({"full_name": "John Doe"})
+
+        with patch('routes.auth.update_user_profile', new=AsyncMock(return_value=None)):
+            response = await update_profile(request)
+
+        assert response.status == 404

@@ -17,7 +17,8 @@ from utils.error_handling import (
     handle_errors, ValidationError, PipelineConflictError,
     NotFoundError, validate_required_fields, validate_positive_int
 )
-from tasks import get_job_status, cancel_job
+from tasks import get_job_status, cancel_job, dequeue_job
+from utils.timestamps import to_iso
 
 logger = logging.getLogger(__name__)
 
@@ -28,7 +29,7 @@ class DateTimeEncoder(json.JSONEncoder):
     """Custom JSON encoder for datetime objects"""
     def default(self, obj):
         if isinstance(obj, (datetime, date)):
-            return obj.isoformat()
+            return to_iso(obj)
         return super().default(obj)
 
 
@@ -391,7 +392,7 @@ async def get_pipeline_progress(request, pipeline_id: int):
                 'status': row['status'],
                 'progress_percent': float(row['progress_percent']) if row['progress_percent'] else None,
                 'details': row['details'],
-                'created_at': row['created_at'].isoformat() if row['created_at'] else None
+                'created_at': to_iso(row['created_at'])
             }
             for row in rows
         ]
@@ -542,16 +543,88 @@ async def get_job_status_endpoint(request, job_id: str):
         return json_response({'error': str(e), 'job_id': job_id}, status=404)
 
 
+def _job_still_running(job_id: str) -> bool:
+    """Whether an RQ worker is still executing the job (e.g. a cancelled run that is stopping)."""
+    from rq.job import Job
+    from tasks.pipeline_tasks import get_redis_connection
+    try:
+        return Job.fetch(job_id, connection=get_redis_connection()).get_status(refresh=True) == 'started'
+    except Exception:
+        return False
+
+
+async def _cancel_owned_run(request, pipeline_id: int):
+    """
+    Stop one of the user's queued or running pipeline runs.
+
+    The run is marked 'cancelled' right away (the database keeps it that way, see
+    migration 017). A job still waiting in the RQ queue is taken off it; a job that
+    already started notices the new status within ~10 s and stops Nextflow itself,
+    which in turn stops the task containers it launched.
+    """
+    pool = request.app.ctx.db_pool
+    async with pool.acquire() as conn:
+        run = await conn.fetchrow("""
+            UPDATE pipeline_runs pr
+            SET status = 'cancelled',
+                error_message = 'Cancelled by user',
+                completed_at = CURRENT_TIMESTAMP
+            FROM samples s
+            WHERE pr.pipeline_id = $1
+              AND s.sample_id = pr.sample_id
+              AND s.owner_id = $2
+              AND pr.status IN ('queued', 'running')
+            RETURNING pr.pipeline_id, pr.job_id
+        """, pipeline_id, current_user_id(request))
+
+        if not run:
+            current = await conn.fetchval("""
+                SELECT pr.status
+                FROM pipeline_runs pr
+                JOIN samples s ON s.sample_id = pr.sample_id
+                WHERE pr.pipeline_id = $1 AND s.owner_id = $2
+            """, pipeline_id, current_user_id(request))
+            if current is None:
+                return json_response({'success': False, 'message': 'Pipeline not found'}, status=404)
+            return json_response({
+                'success': False,
+                'pipeline_id': pipeline_id,
+                'message': f'Only queued or running pipelines can be stopped (status: {current})'
+            }, status=400)
+
+    dequeued = False
+    if run['job_id']:
+        dequeued = await asyncio.to_thread(dequeue_job, run['job_id'])
+
+    logger.info(f"Pipeline {pipeline_id} cancelled by user {current_user_id(request)} "
+                f"({'removed from queue' if dequeued else 'worker will stop it'})")
+    return json_response({
+        'success': True,
+        'pipeline_id': pipeline_id,
+        'job_id': run['job_id'],
+        'status': 'cancelled',
+        'message': 'Pipeline removed from the queue' if dequeued or not run['job_id']
+                   else 'Pipeline is stopping - running tasks are shut down within a minute',
+    })
+
+
+@pipeline_v2_bp.post("/runs/<pipeline_id:int>/cancel")
+@protected
+async def cancel_run_endpoint(request, pipeline_id: int):
+    """Stop a queued or running pipeline run"""
+    try:
+        return await _cancel_owned_run(request, pipeline_id)
+    except Exception as e:
+        logger.error(f"Error cancelling pipeline {pipeline_id}: {e}", exc_info=True)
+        return json_response({'error': 'Internal server error'}, status=500)
+
+
 @pipeline_v2_bp.post("/job/<job_id:str>/cancel")
 @protected
 async def cancel_job_endpoint(request, job_id: str):
-    """Cancel a queued/running job."""
+    """Stop a queued or running pipeline run, addressed by its RQ job id"""
     try:
-        services = request.app.ctx.services
-        pipeline_service = services.get_pipeline_service()
-        pool = pipeline_service.pipeline_repo.pool
-
-        async with pool.acquire() as conn:
+        async with request.app.ctx.db_pool.acquire() as conn:
             pipeline_run = await get_owned_pipeline_by_job(conn, current_user_id(request), job_id)
 
         if not pipeline_run:
@@ -561,37 +634,11 @@ async def cancel_job_endpoint(request, job_id: str):
                 'message': 'Pipeline not found'
             }, status=404)
 
-        current_status = pipeline_run['status']
-        if current_status not in ('queued', 'running'):
-            return json_response({
-                'success': False,
-                'job_id': job_id,
-                'message': f'Cannot cancel pipeline in status: {current_status}'
-            }, status=400)
-
-        success = cancel_job(job_id)
-
-        if success:
-            await pipeline_service.update_status(
-                pipeline_run['pipeline_id'],
-                'cancelled'
-            )
-
-            return json_response({
-                'success': True,
-                'job_id': job_id,
-                'message': f'Job {job_id} cancelled successfully'
-            }, status=200)
-        else:
-            return json_response({
-                'success': False,
-                'job_id': job_id,
-                'message': 'Job could not be cancelled'
-            }, status=400)
+        return await _cancel_owned_run(request, pipeline_run['pipeline_id'])
 
     except Exception as e:
-        logger.error(f"Error cancelling job {job_id}: {e}")
-        return json_response({'error': str(e)}, status=500)
+        logger.error(f"Error cancelling job {job_id}: {e}", exc_info=True)
+        return json_response({'error': 'Internal server error'}, status=500)
 
 
 @pipeline_v2_bp.post("/<pipeline_id:int>/cancel-stale")
@@ -638,7 +685,7 @@ async def cancel_stale_pipeline(request, pipeline_id: int):
 @protected
 async def rerun_pipeline(request, pipeline_id: int):
     """
-    Re-enqueue a failed pipeline under the same pipeline_id.
+    Re-enqueue a failed or cancelled pipeline under the same pipeline_id.
     Bronze files stay registered in minio_objects against this pipeline_id
     (failure cleanup only removes the local copy), so the worker re-downloads them.
     """
@@ -651,7 +698,7 @@ async def rerun_pipeline(request, pipeline_id: int):
             async with conn.transaction():
                 run = await conn.fetchrow("""
                     SELECT pr.pipeline_id, pr.status, pr.parameters, pr.bronze_path,
-                           pr.results_path, s.sample_code
+                           pr.results_path, pr.job_id, s.sample_code
                     FROM pipeline_runs pr
                     JOIN samples s ON s.sample_id = pr.sample_id
                     WHERE pr.pipeline_id = $1 AND s.owner_id = $2
@@ -660,10 +707,18 @@ async def rerun_pipeline(request, pipeline_id: int):
 
                 if not run:
                     return json_response({'error': 'Pipeline run not found'}, status=404)
-                if run['status'] != 'failed':
+                if run['status'] not in ('failed', 'cancelled'):
                     return json_response(
-                        {'error': f"Only failed runs can be rerun (status: {run['status']})"},
+                        {'error': f"Only failed or cancelled runs can be rerun (status: {run['status']})"},
                         status=400
+                    )
+
+                if run['status'] == 'cancelled' and run['job_id'] and await asyncio.to_thread(
+                    _job_still_running, run['job_id']
+                ):
+                    return json_response(
+                        {'error': 'This run is still stopping. Try again in a minute.'},
+                        status=409
                     )
 
                 has_inputs = await conn.fetchval(
@@ -830,8 +885,8 @@ async def get_pipeline_processes(request, pipeline_id: int):
                 'task_id': row['task_id'],
                 'status': row['status'],
                 'exit_code': row['exit_code'],
-                'start_time': row['start_time'].isoformat() if row['start_time'] else None,
-                'complete_time': row['complete_time'].isoformat() if row['complete_time'] else None,
+                'start_time': to_iso(row['start_time']),
+                'complete_time': to_iso(row['complete_time']),
                 'duration_seconds': float(row['duration_seconds']) if row['duration_seconds'] else None,
                 'cpu_hours': float(row['cpu_usage']) if row['cpu_usage'] else None,
                 'memory_mb': float(row['peak_memory_mb']) if row['peak_memory_mb'] else None,

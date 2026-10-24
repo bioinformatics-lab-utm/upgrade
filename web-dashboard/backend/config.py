@@ -73,7 +73,7 @@ class Config:
     NEXTFLOW_DIR = Path(os.getenv('NEXTFLOW_DIR', '/nextflow'))
     RESULTS_DIR = Path(os.getenv('RESULTS_DIR', '/results'))
     DATA_DIR = Path(os.getenv('DATA_DIR', '/data'))
-    WORK_DIR = Path(os.getenv('WORK_DIR', '/tmp/nextflow-work'))
+    WORK_DIR = Path(os.getenv('WORK_DIR', '/tmp/nf-work'))  # Nextflow work + launch dir (worker's cwd)
 
     # Redis Queue configuration
     RQ_QUEUE_NAME = os.getenv('RQ_QUEUE_NAME', 'pipeline-queue')

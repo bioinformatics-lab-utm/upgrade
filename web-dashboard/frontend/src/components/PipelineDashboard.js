@@ -40,6 +40,7 @@ const PipelineDashboard = () => {
   const [processingSteps, setProcessingSteps] = useState([]);
   const [currentJobId, setCurrentJobId] = useState(null);
   const [rerunningId, setRerunningId] = useState(null);
+  const [stoppingId, setStoppingId] = useState(null);
   const [locations, setLocations] = useState([]);
 
   useEffect(() => {
@@ -65,7 +66,7 @@ const PipelineDashboard = () => {
     // Adaptive polling: check if any pipelines are running
     const getPollingInterval = () => {
       const currentRuns = runsRef.current;
-      const hasRunningPipelines = currentRuns.some(r => r.status === 'running' || r.status === 'pending');
+      const hasRunningPipelines = currentRuns.some(r => ['running', 'queued', 'pending'].includes(r.status));
       return hasRunningPipelines ? 5000 : 30000;  // 5s when active, 30s when idle
     };
 
@@ -407,28 +408,28 @@ const PipelineDashboard = () => {
     });
   };
 
+  const formatMinutes = (totalMinutes) => {
+    const minutes = Math.max(0, totalMinutes);
+    const hours = Math.floor(minutes / 60);
+    const mins = minutes % 60;
+    return hours > 0 ? `${hours}h ${mins}m` : `${mins}m`;
+  };
+
   const formatDuration = (run) => {
     // If runtime_minutes exists (completed/failed), show it
     if (run.runtime_minutes !== null && run.runtime_minutes !== undefined) {
-      const hours = Math.floor(run.runtime_minutes / 60);
-      const mins = run.runtime_minutes % 60;
-      if (hours > 0) {
-        return `${hours}h ${mins}m`;
-      }
-      return `${mins}m`;
+      return formatMinutes(run.runtime_minutes);
     }
-    
-    // For running pipelines, calculate elapsed time
+
+    // For running pipelines, calculate elapsed time (timestamps carry their UTC offset)
     if (run.status === 'running' && run.started_at) {
-      const start = new Date(run.started_at);
-      const now = new Date();
-      const diffMinutes = Math.floor((now - start) / (1000 * 60));
-      const hours = Math.floor(diffMinutes / 60);
-      const mins = diffMinutes % 60;
-      if (hours > 0) {
-        return `${hours}h ${mins}m (running)`;
-      }
-      return `${mins}m (running)`;
+      const diffMinutes = Math.floor((Date.now() - new Date(run.started_at)) / (1000 * 60));
+      return `${formatMinutes(diffMinutes)} (running)`;
+    }
+
+    // Finished without a recorded runtime (e.g. stopped by the user)
+    if (run.started_at && run.completed_at) {
+      return formatMinutes(Math.floor((new Date(run.completed_at) - new Date(run.started_at)) / (1000 * 60)));
     }
     
     // For queued pipelines
@@ -493,6 +494,20 @@ const PipelineDashboard = () => {
     setShowLogs(false);
     setAutoRefreshLogs(false);
     setLogs('');
+  };
+
+  const handleStop = async (run) => {
+    const what = run.status === 'queued' ? 'Remove it from the queue' : 'Running tasks will be stopped';
+    if (!window.confirm(`Stop pipeline #${run.pipeline_id} (${run.sample_code})? ${what}.`)) return;
+    setStoppingId(run.pipeline_id);
+    try {
+      await api.post(`${API_URL}/api/pipeline/runs/${run.pipeline_id}/cancel`);
+      await loadData();
+    } catch (err) {
+      alert(err.response?.data?.message || err.response?.data?.error || 'Could not stop the pipeline');
+    } finally {
+      setStoppingId(null);
+    }
   };
 
   const handleRerun = async (run) => {
@@ -611,13 +626,14 @@ const PipelineDashboard = () => {
                   ) : (
                     runs.map(run => (
                       <tr key={run.pipeline_id}>
-                        <td className="mono">#{run.pipeline_id}</td>
-                        <td className="mono">{run.sample_code}</td>
-                        <td>{run.sample_type}</td>
-                        <td>{getStatusBadge(run.status)}</td>
-                        <td>{formatDate(run.started_at)}</td>
-                        <td>{formatDuration(run)}</td>
-                        <td>
+                        {/* data-label: column name shown next to the value when rows collapse into cards */}
+                        <td className="mono" data-label="ID">#{run.pipeline_id}</td>
+                        <td className="mono" data-label="Sample Code">{run.sample_code}</td>
+                        <td data-label="Type">{run.sample_type}</td>
+                        <td data-label="Status">{getStatusBadge(run.status)}</td>
+                        <td data-label="Started">{formatDate(run.started_at)}</td>
+                        <td data-label="Duration">{formatDuration(run)}</td>
+                        <td data-label="Actions">
                           <div className="row-actions">
                             <button
                               className="run-action"
@@ -630,7 +646,7 @@ const PipelineDashboard = () => {
                               </svg>
                               View
                             </button>
-                            {(run.status === 'running' || run.status === 'queued' || run.status === 'completed' || run.status === 'failed') && (
+                            {['running', 'queued', 'completed', 'failed', 'cancelled'].includes(run.status) && (
                               <button
                                 className="run-action run-action--primary"
                                 onClick={() => setMonitoringPipelineId(run.pipeline_id)}
@@ -642,7 +658,20 @@ const PipelineDashboard = () => {
                                 Monitor
                               </button>
                             )}
-                            {run.status === 'failed' && (
+                            {(run.status === 'running' || run.status === 'queued') && (
+                              <button
+                                className="run-action run-action--danger"
+                                onClick={() => handleStop(run)}
+                                disabled={stoppingId === run.pipeline_id}
+                                title="Stop this pipeline run"
+                              >
+                                <svg viewBox="0 0 24 24" aria-hidden="true">
+                                  <rect x="6" y="6" width="12" height="12" rx="1.5" />
+                                </svg>
+                                {stoppingId === run.pipeline_id ? 'Stopping…' : 'Stop'}
+                              </button>
+                            )}
+                            {(run.status === 'failed' || run.status === 'cancelled') && (
                               <button
                                 className="run-action run-action--warning"
                                 onClick={() => handleRerun(run)}

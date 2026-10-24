@@ -25,57 +25,23 @@ class TestWorkerInitImports:
         assert Path is not None
 
 
-class TestInitializeDBPool:
-    """Test initialize_db_pool function"""
+class TestReadSecret:
+    """Test read_secret (the worker reads its passwords from Docker secrets)"""
 
-    def test_function_exists(self):
-        """Test initialize_db_pool function exists"""
-        from worker_init import initialize_db_pool
-        assert initialize_db_pool is not None
-        assert callable(initialize_db_pool)
+    def test_reads_and_strips(self, tmp_path):
+        """Test the secret file content is returned without the trailing newline"""
+        from worker_init import read_secret
 
-    @pytest.mark.asyncio
-    async def test_initialize_db_pool_success(self):
-        """Test initialize_db_pool returns pool on success"""
-        from worker_init import initialize_db_pool
-        
-        with patch('worker_init.DatabasePool') as mock_db:
-            mock_pool = AsyncMock()
-            mock_db.initialize = AsyncMock(return_value=mock_pool)
-            
-            result = await initialize_db_pool()
-            
-            mock_db.initialize.assert_called_once()
-            assert result == mock_pool
+        secret = tmp_path / "redis_password"
+        secret.write_text("s3cret\n")
 
-    @pytest.mark.asyncio
-    async def test_initialize_db_pool_failure(self):
-        """Test initialize_db_pool raises on failure"""
-        from worker_init import initialize_db_pool
-        
-        with patch('worker_init.DatabasePool') as mock_db:
-            mock_db.initialize = AsyncMock(side_effect=Exception("Connection failed"))
-            
-            with pytest.raises(Exception):
-                await initialize_db_pool()
+        assert read_secret(str(secret)) == "s3cret"
 
+    def test_missing_file_returns_none(self, tmp_path):
+        """Test a missing secret falls back to None (env vars are used instead)"""
+        from worker_init import read_secret
 
-class TestSetupWorkerContext:
-    """Test setup_worker_context function"""
-
-    def test_function_exists(self):
-        """Test setup_worker_context function exists"""
-        from worker_init import setup_worker_context
-        assert setup_worker_context is not None
-        assert callable(setup_worker_context)
-
-    def test_setup_worker_context_returns_none(self):
-        """Test setup_worker_context returns None"""
-        from worker_init import setup_worker_context
-        
-        result = setup_worker_context()
-        
-        assert result is None
+        assert read_secret(str(tmp_path / "missing")) is None
 
 
 class TestWorkerInitLogger:

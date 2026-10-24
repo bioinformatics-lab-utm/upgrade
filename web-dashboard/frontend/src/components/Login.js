@@ -11,7 +11,7 @@ function Login({ onLogin }) {
   });
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
-  // Username of an account that signed in correctly but has not confirmed its email
+  // Username or email of an account that signed in correctly but has not confirmed its email
   const [unverifiedUser, setUnverifiedUser] = useState('');
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
@@ -117,14 +117,15 @@ function Login({ onLogin }) {
           )}
 
           <div className="form-group">
-            <label htmlFor="username">Username</label>
+            <label htmlFor="username">Username or email</label>
             <input
               type="text"
               id="username"
               name="username"
               value={formData.username}
               onChange={handleChange}
-              placeholder="Enter your username"
+              placeholder="Enter your username or email"
+              autoComplete="username"
               required
               autoFocus
             />

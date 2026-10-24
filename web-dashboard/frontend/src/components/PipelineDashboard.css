@@ -490,6 +490,18 @@
   color: #92400e !important;
 }
 
+.run-action--danger {
+  background: #fef2f2;
+  border-color: #fecaca;
+  color: #b91c1c !important;
+}
+
+.run-action--danger:hover:not(:disabled) {
+  background: #fee2e2;
+  border-color: #fca5a5;
+  color: #991b1b !important;
+}
+
 .run-action:disabled {
   opacity: 0.6;
   cursor: wait;
@@ -831,4 +843,182 @@
   font-size: 0.85rem;
   color: var(--text-secondary, #94a3b8);
   cursor: pointer;
+}
+
+/* The modal reads --card-bg/--border-color/--hover-bg, which nothing defines, so it fell
+   back to a dark surface while its text uses the app's dark text colours. */
+.modal-content {
+  --card-bg: var(--bg-elevated);
+  --border-color: var(--border-primary);
+  --hover-bg: var(--bg-tertiary);
+}
+
+/* PipelineResultsDashboard.css also styles .dashboard-header and zeroes its side padding */
+.dashboard-container .dashboard-header {
+  padding: 2rem 2.5rem;
+}
+
+/* Let long sample codes wrap instead of pushing the table wider than its card */
+.runs-table td[data-label="Sample Code"] {
+  overflow-wrap: anywhere;
+}
+
+@media (min-width: 769px) {
+  .runs-table td[data-label="Sample Code"] {
+    min-width: 11rem;
+  }
+
+  .runs-table td[data-label="Started"],
+  .runs-table td[data-label="Duration"] {
+    white-space: nowrap;
+  }
+}
+
+@media (min-width: 769px) and (max-width: 1280px) {
+  .runs-table th,
+  .runs-table td {
+    padding-left: 0.75rem;
+    padding-right: 0.75rem;
+  }
+}
+
+/* Narrow table: action buttons keep their icon and tooltip, the text label goes */
+@media (min-width: 769px) and (max-width: 1100px) {
+  .runs-table .run-action {
+    gap: 0;
+    padding: 0 0.5rem;
+    font-size: 0;
+  }
+}
+
+/* ========================================
+   Small screens
+   ======================================== */
+@media (max-width: 768px) {
+  /* The page content already has its own gutter */
+  .dashboard-container {
+    padding: 0;
+  }
+
+  .dashboard-container .dashboard-header {
+    padding: 1.5rem 1rem;
+    gap: 1.25rem;
+    margin-bottom: 1.25rem;
+  }
+
+  /* Runs table: each row becomes a card, so nothing has to scroll sideways */
+  .runs-container .table-wrapper {
+    overflow-x: visible;
+  }
+
+  .runs-table,
+  .runs-table tbody {
+    display: block;
+    min-width: 0;
+  }
+
+  .runs-table thead {
+    display: none;
+  }
+
+  .runs-table tbody tr {
+    display: grid;
+    grid-template-columns: repeat(12, minmax(0, 1fr));
+    gap: 0.625rem 0.75rem;
+    padding: 0.875rem 1rem;
+  }
+
+  .runs-table td {
+    display: flex;
+    flex-direction: column;
+    gap: 0.125rem;
+    min-width: 0;
+    padding: 0;
+    font-size: 0.875rem;
+    overflow-wrap: anywhere;
+  }
+
+  .runs-table td[data-label]::before {
+    content: attr(data-label);
+    font-size: 0.6875rem;
+    font-weight: 600;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: #64748b;
+  }
+
+  .runs-table td[data-label="ID"] { order: 1; grid-column: span 6; }
+  .runs-table td[data-label="Status"] { order: 2; grid-column: span 6; align-items: flex-end; }
+  .runs-table td[data-label="Sample Code"] { order: 3; grid-column: 1 / -1; }
+  .runs-table td[data-label="Type"] { order: 4; grid-column: span 3; }
+  .runs-table td[data-label="Started"] { order: 5; grid-column: span 5; }
+  .runs-table td[data-label="Duration"] { order: 6; grid-column: span 4; }
+  .runs-table td[data-label="Actions"] { order: 7; grid-column: 1 / -1; }
+
+  .runs-table td[data-label="ID"]::before,
+  .runs-table td[data-label="Status"]::before,
+  .runs-table td[data-label="Actions"]::before {
+    display: none;
+  }
+
+  .runs-table td.empty-state {
+    grid-column: 1 / -1;
+  }
+
+  .runs-table .row-actions {
+    flex-wrap: wrap;
+  }
+
+  .upload-container {
+    max-width: none;
+  }
+
+  .upload-card {
+    padding: 1.25rem 1rem;
+  }
+
+  .upload-card h2 {
+    font-size: 1.25rem;
+  }
+
+  .file-label {
+    padding: 1.25rem 1rem;
+    text-align: center;
+  }
+}
+
+@media (max-width: 640px) {
+  .modal-content {
+    width: calc(100% - 1.5rem);
+    max-height: 85vh;
+    max-height: 85dvh;
+  }
+
+  .modal-header {
+    padding: 14px 16px;
+    gap: 12px;
+  }
+
+  .modal-header h2 {
+    font-size: 1.0625rem;
+    overflow-wrap: anywhere;
+  }
+
+  .modal-body {
+    padding: 16px;
+  }
+
+  .modal-footer {
+    flex-wrap: wrap;
+    padding: 12px 16px;
+  }
+
+  .detail-grid {
+    grid-template-columns: 1fr;
+    gap: 12px;
+  }
+
+  .detail-value {
+    overflow-wrap: anywhere;
+  }
 }

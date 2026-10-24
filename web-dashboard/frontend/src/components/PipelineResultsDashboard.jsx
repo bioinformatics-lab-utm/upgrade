@@ -1,5 +1,6 @@
-import React, { useState, useEffect } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import React, { useState, useEffect, useRef } from 'react';
+import { createPortal } from 'react-dom';
+import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import {
   ResponsiveContainer,
   PieChart,
@@ -23,6 +24,8 @@ import {
   ReferenceLine,
 } from 'recharts';
 import api from '../services/api';
+import { exportReportPdf } from '../utils/reportPdf';
+import useMediaQuery from '@mui/material/useMediaQuery';
 import './PipelineResultsDashboard.css';
 
 const COLORS = {
@@ -70,10 +73,73 @@ export default function PipelineResultsDashboard() {
   const [data, setData] = useState(null);
   const [error, setError] = useState(null);
   const [activeTab, setActiveTab] = useState('overview');
+  // PDF export: the whole report (every tab) is rendered off to the side, then captured
+  const [exporting, setExporting] = useState(false);
+  const [exportError, setExportError] = useState(null);
+  const [reportMeta, setReportMeta] = useState(null);
+  const reportRef = useRef(null);
+  const [searchParams, setSearchParams] = useSearchParams();
+  // Charts take pixel sizes, so phone-width layouts need their own numbers
+  const isNarrow = useMediaQuery('(max-width:640px)');
+  const shorten = (text, max) => (text.length > max ? text.slice(0, max - 1) + '…' : text);
 
   useEffect(() => {
     fetchPipelineResults();
   }, [sampleId]);
+
+  // The results list's download button opens this page with ?download=pdf
+  useEffect(() => {
+    if (data && searchParams.get('download') === 'pdf') {
+      setSearchParams({}, { replace: true });
+      if (data.results_available !== false) startPdfExport();
+    }
+  }, [data]);
+
+  // Run and sample details for the report's first page
+  const loadReportMeta = async () => {
+    if (!data?.pipeline_id) return {};
+    try {
+      const { data: run } = await api.get(`/api/pipeline/runs/${data.pipeline_id}`);
+      let sample = null;
+      if (run?.sample_id) {
+        sample = (await api.get(`/api/samples/${run.sample_id}`)).data?.sample || null;
+      }
+      return { run, sample };
+    } catch {
+      return {};
+    }
+  };
+
+  const startPdfExport = async () => {
+    setExportError(null);
+    setReportMeta(await loadReportMeta());
+    setExporting(true);
+  };
+
+  useEffect(() => {
+    if (!exporting) return undefined;
+    let cancelled = false;
+    // Give the charts a moment to measure their (off-screen) containers and draw
+    const timer = setTimeout(async () => {
+      try {
+        const name = data?.sample_name || sampleId;
+        await exportReportPdf(reportRef.current, {
+          fileName: `UPGRADE_report_${name}_run${data?.pipeline_id || ''}.pdf`,
+          headerLeft: 'UPGRADE · Pipeline Analysis Report',
+          headerRight: `${name} · run #${data?.pipeline_id || '—'}`,
+        });
+      } catch (err) {
+        if (!cancelled) setExportError('The PDF could not be created. Please try again.');
+        console.error('PDF export failed', err);
+      } finally {
+        if (!cancelled) setExporting(false);
+      }
+    }, 900);
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+  }, [exporting]);
 
   const fetchPipelineResults = async () => {
     setLoading(true);
@@ -188,82 +254,22 @@ export default function PipelineResultsDashboard() {
   const amrRiskLevel = (amr_risk_score || 0) >= 7 ? 'high' : (amr_risk_score || 0) >= 3 ? 'medium' : 'low';
   const amrRiskLabel = amrRiskLevel === 'high' ? 'High Risk' : amrRiskLevel === 'medium' ? 'Medium Risk' : 'Low Risk';
 
-  return (
-    <div className="pipeline-dashboard">
-      {/* Header */}
-      <div className="dashboard-header">
-        <div className="header-content">
-          <div className="header-title">
-            <h1>Pipeline Results</h1>
-            <p className="sample-id">{sample_name || sampleId}</p>
-          </div>
-          <div className="header-actions">
-            <button onClick={() => navigate('/results')} className="btn btn-back">← Back to Results</button>
-          </div>
-        </div>
-      </div>
-
-      {/* Key Metrics */}
-      <div className="metrics-grid">
-        <div className="metric-card quality">
-          <div className="metric-label">Quality Score</div>
-          <div className="metric-value">{quality_score?.toFixed(1) || 0}</div>
-          <div className="metric-bar">
-            <div className="metric-bar-fill" style={{ width: `${quality_score || 0}%` }}></div>
-          </div>
-        </div>
-
-        <div className="metric-card amr">
-          <div className="metric-label">AMR Risk (0–10)</div>
-          <div className="metric-value">{amr_risk_score?.toFixed(1) || 0}</div>
-          <div className={`risk-badge risk-${amrRiskLevel}`}>{amrRiskLabel}</div>
-        </div>
-
-        <div className="metric-card mags">
-          <div className="metric-label">Total MAGs</div>
-          <div className="metric-value">{mags?.total_bins || mags?.total || 0}</div>
-          <div className="metric-detail">
-            High: {mags?.high_quality || 0} | Med: {mags?.medium_quality || 0} | Low: {mags?.low_quality || 0}
-          </div>
-        </div>
-
-        <div className="metric-card genes">
-          <div className="metric-label">AMR Genes</div>
-          <div className="metric-value">{amr?.total_genes || 0}</div>
-          <div className="metric-detail">{amr?.high_risk_genes || 0} high-risk</div>
-        </div>
-      </div>
-
-      {/* Tabs */}
-      <div className="dashboard-tabs">
-        {tabs.map(tab => (
-          <button
-            key={tab.id}
-            onClick={() => setActiveTab(tab.id)}
-            className={`tab-button ${activeTab === tab.id ? 'active' : ''}`}
-          >
-            {tab.label}
-          </button>
-        ))}
-      </div>
-
-      {/* Tab Content */}
-      <div className="tab-content">
-
-        {/* ─── OVERVIEW ─── */}
-        {activeTab === 'overview' && (
+  const render_overview = ({ narrow, animate }) => (
           <div className="overview-grid">
             <div className="chart-card">
               <h3>Quality Metrics Overview</h3>
               <p style={{ fontSize: 13, color: '#64748b', marginBottom: 8 }}>
                 All axes normalized 0–100. N50 on log₁₀ scale (100% ≈ 10 Mbp).
               </p>
-              <ResponsiveContainer width="100%" height={380}>
-                <RadarChart data={qualityMetrics}>
+              <ResponsiveContainer width="100%" height={narrow ? 280 : 380}>
+                <RadarChart data={qualityMetrics} outerRadius={narrow ? '52%' : '80%'}>
                   <PolarGrid stroke="#e2e8f0" strokeWidth={1.5} />
-                  <PolarAngleAxis dataKey="name" tick={{ fill: '#475569', fontSize: 13, fontWeight: 600 }} />
-                  <PolarRadiusAxis angle={90} domain={[0, 100]} tick={{ fill: '#64748b', fontWeight: 600 }} />
-                  <Radar name="Score" dataKey="value" stroke="#3b82f6" fill="#3b82f6" fillOpacity={0.45} strokeWidth={2} />
+                  <PolarAngleAxis dataKey="name" tick={{ fill: '#475569', fontSize: narrow ? 11 : 13, fontWeight: 600 }}
+                    tickFormatter={(name) => (narrow && name === 'Assembly N50' ? 'N50' : name)} />
+                  {/* the 100 tick sits on the "Read Quality" label, so leave it unlabelled */}
+                  <PolarRadiusAxis angle={90} domain={[0, 100]} tick={{ fill: '#64748b', fontSize: 11, fontWeight: 600 }}
+                    tickFormatter={(v) => (v === 100 ? '' : v)} />
+                  <Radar isAnimationActive={animate} name="Score" dataKey="value" stroke="#3b82f6" fill="#3b82f6" fillOpacity={0.45} strokeWidth={2} />
                   <Tooltip formatter={(v) => v.toFixed(1)} />
                 </RadarChart>
               </ResponsiveContainer>
@@ -271,9 +277,10 @@ export default function PipelineResultsDashboard() {
 
             <div className="chart-card">
               <h3>AMR Resistance Genes</h3>
-              <ResponsiveContainer width="100%" height={180}>
+              <ResponsiveContainer width="100%" height={narrow ? 230 : 180}>
                 <PieChart>
                   <Pie
+                    isAnimationActive={animate}
                     data={amrDonutData}
                     cx="50%"
                     cy="50%"
@@ -281,7 +288,7 @@ export default function PipelineResultsDashboard() {
                     outerRadius={80}
                     paddingAngle={4}
                     dataKey="value"
-                    label={({ name, value }) => `${name}: ${value}`}
+                    label={narrow ? false : ({ name, value }) => `${name}: ${value}`}
                     labelLine={false}
                   >
                     {amrDonutData.map((entry, i) => (
@@ -289,6 +296,7 @@ export default function PipelineResultsDashboard() {
                     ))}
                   </Pie>
                   <Tooltip />
+                  {narrow && <Legend formatter={(name, entry) => `${name}: ${entry.payload.value}`} />}
                 </PieChart>
               </ResponsiveContainer>
             </div>
@@ -353,10 +361,9 @@ export default function PipelineResultsDashboard() {
               </div>
             </div>
           </div>
-        )}
+  );
 
-        {/* ─── QC ─── */}
-        {activeTab === 'qc' && (
+  const render_qc = ({ narrow, animate }) => (
           <div className="qc-content">
             {/* Quality gauge cards */}
             <div className="gauge-grid">
@@ -402,10 +409,10 @@ export default function PipelineResultsDashboard() {
 
               <div className="gauge-card">
                 <div className="gauge-label">Read Length N50</div>
-                <div className="gauge-value">{formatBp(qc?.n50)}</div>
+                <div className="gauge-value">{formatBp(qc?.n50_read)}</div>
                 <div className="gauge-bar">
                   <div className="gauge-bar-fill" style={{
-                    width: `${Math.min((qc?.n50 || 0) / 50000 * 100, 100)}%`,
+                    width: `${Math.min((qc?.n50_read || 0) / 50000 * 100, 100)}%`,
                     background: COLORS.secondary,
                   }} />
                 </div>
@@ -440,10 +447,9 @@ export default function PipelineResultsDashboard() {
               </div>
             </div>
           </div>
-        )}
+  );
 
-        {/* ─── ASSEMBLY ─── */}
-        {activeTab === 'assembly' && (
+  const render_assembly = ({ narrow, animate }) => (
           <div className="assembly-content">
             {/* N50 / N90 / Largest chart — homogeneous unit: bp */}
             <div className="chart-card full-width">
@@ -457,7 +463,7 @@ export default function PipelineResultsDashboard() {
                   <XAxis type="number" tick={{ fill: '#6b7280' }} tickFormatter={formatBp} />
                   <YAxis type="category" dataKey="name" tick={{ fill: '#475569', fontWeight: 600 }} width={70} />
                   <Tooltip formatter={(v) => formatBp(v)} />
-                  <Bar dataKey="value" fill={COLORS.secondary} radius={[0, 8, 8, 0]}>
+                  <Bar isAnimationActive={animate} dataKey="value" fill={COLORS.secondary} radius={[0, 8, 8, 0]}>
                     {assemblyLengthData.map((_, i) => (
                       <Cell key={i} fill={[COLORS.primary, COLORS.secondary, '#06b6d4'][i % 3]} />
                     ))}
@@ -493,19 +499,19 @@ export default function PipelineResultsDashboard() {
               </div>
             </div>
           </div>
-        )}
+  );
 
-        {/* ─── MAGs ─── */}
-        {activeTab === 'mags' && (
+  const render_mags = ({ narrow, animate }) => (
           <div className="mags-content">
             <div className="mags-top-grid">
               {/* Quality donut */}
               <div className="chart-card">
                 <h3>MAG Quality Distribution</h3>
                 {magQualityData.length > 0 ? (
-                  <ResponsiveContainer width="100%" height={240}>
+                  <ResponsiveContainer width="100%" height={narrow ? 300 : 240}>
                     <PieChart>
                       <Pie
+                    isAnimationActive={animate}
                         data={magQualityData}
                         cx="50%"
                         cy="50%"
@@ -513,11 +519,12 @@ export default function PipelineResultsDashboard() {
                         outerRadius={90}
                         paddingAngle={4}
                         dataKey="value"
-                        label={({ name, value }) => `${name}: ${value}`}
+                        label={narrow ? false : ({ name, value }) => `${name}: ${value}`}
                       >
                         {magQualityData.map((d, i) => <Cell key={i} fill={d.color} />)}
                       </Pie>
                       <Tooltip />
+                      {narrow && <Legend formatter={(name, entry) => `${name}: ${entry.payload.value}`} />}
                     </PieChart>
                   </ResponsiveContainer>
                 ) : (
@@ -533,7 +540,7 @@ export default function PipelineResultsDashboard() {
                 </p>
                 {magScatterData.length > 0 ? (
                   <ResponsiveContainer width="100%" height={260}>
-                    <ScatterChart margin={{ top: 10, right: 20, bottom: 20, left: 20 }}>
+                    <ScatterChart margin={{ top: 10, right: narrow ? 8 : 20, bottom: 20, left: narrow ? 0 : 20 }}>
                       <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
                       <XAxis
                         type="number"
@@ -570,6 +577,7 @@ export default function PipelineResultsDashboard() {
                       <ReferenceLine x={5} stroke="#dc2626" strokeDasharray="4 2" label={{ value: '5%', fill: '#dc2626', fontSize: 11 }} />
                       <ReferenceLine y={90} stroke="#10b981" strokeDasharray="4 2" label={{ value: '90%', fill: '#10b981', fontSize: 11 }} />
                       <Scatter
+                        isAnimationActive={animate}
                         data={magScatterData}
                         shape={(props) => {
                           const { cx, cy, payload } = props;
@@ -647,10 +655,9 @@ export default function PipelineResultsDashboard() {
               <div className="empty-state"><p>No MAG data available</p></div>
             )}
           </div>
-        )}
+  );
 
-        {/* ─── AMR ─── */}
-        {activeTab === 'amr' && (
+  const render_amr = ({ narrow, animate }) => (
           <div className="amr-content">
             <div className="stats-grid">
               <div className="stat-card amr-critical">
@@ -675,14 +682,15 @@ export default function PipelineResultsDashboard() {
                   Genes grouped by antibiotic class from the CARD database.
                 </p>
                 <ResponsiveContainer width="100%" height={Math.max(220, amrClassData.length * 36)}>
-                  <BarChart data={amrClassData} layout="vertical" margin={{ left: 10 }}>
+                  <BarChart data={amrClassData} layout="vertical" margin={{ left: narrow ? 0 : 10 }}>
                     <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
                     <XAxis type="number" allowDecimals={false} tick={{ fill: '#6b7280' }} />
-                    <YAxis type="category" dataKey="class" width={180} tick={{ fill: '#475569', fontSize: 12 }} />
+                    <YAxis type="category" dataKey="class" width={narrow ? 104 : 180} tick={{ fill: '#475569', fontSize: narrow ? 10 : 12 }}
+                      tickFormatter={(v) => (narrow ? shorten(v, 18) : v)} />
                     <Tooltip />
                     <Legend />
-                    <Bar dataKey="high" name="High Risk" stackId="a" fill={COLORS.danger} radius={[0, 0, 0, 0]} />
-                    <Bar dataKey="moderate" name="Moderate" stackId="a" fill={COLORS.warning} radius={[0, 8, 8, 0]} />
+                    <Bar isAnimationActive={animate} dataKey="high" name="High Risk" stackId="a" fill={COLORS.danger} radius={[0, 0, 0, 0]} />
+                    <Bar isAnimationActive={animate} dataKey="moderate" name="Moderate" stackId="a" fill={COLORS.warning} radius={[0, 8, 8, 0]} />
                   </BarChart>
                 </ResponsiveContainer>
               </div>
@@ -741,10 +749,9 @@ export default function PipelineResultsDashboard() {
               </div>
             )}
           </div>
-        )}
+  );
 
-        {/* ─── TAXONOMY ─── */}
-        {activeTab === 'taxonomy' && (
+  const render_taxonomy = ({ narrow, animate }) => (
           <div className="taxonomy-content">
             {taxSpecies.length > 0 ? (
               <>
@@ -762,19 +769,23 @@ export default function PipelineResultsDashboard() {
                     <div className="stat-value">{taxonomy?.risk_assessment?.low || 0}</div>
                   </div>
                   <div className="stat-card">
-                    <div className="stat-label">Total Species</div>
+                    <div className="stat-label">Genera</div>
                     <div className="stat-value">{taxSpecies.length}</div>
                   </div>
                 </div>
 
                 {/* Treemap */}
                 <div className="chart-card full-width">
-                  <h3>Species Abundance Treemap</h3>
+                  <h3>Genus Abundance</h3>
                   <p style={{ fontSize: 13, color: '#64748b', marginBottom: 8 }}>
-                    Cell size = relative abundance. Red = pathogen, green = commensal.
+                    {taxonomy?.abundance_basis === 'assembled_bases'
+                      ? `Share of the assembled bases (${formatBp(taxonomy.assembled_bp)}) classified to each genus by Kraken2. `
+                      : 'Average of the Kraken2 genus percentages of the bins (older run: contig lengths not kept). '}
+                    Cell size = abundance. Red = pathogen, amber = opportunistic, green = low risk.
                   </p>
-                  <ResponsiveContainer width="100%" height={380}>
+                  <ResponsiveContainer width="100%" height={narrow ? 300 : 380}>
                     <Treemap
+                      isAnimationActive={animate}
                       data={taxSpecies.map(s => ({
                         name: s.name.split(' ').slice(0, 2).join(' '),
                         size: s.abundance || 1,
@@ -785,14 +796,15 @@ export default function PipelineResultsDashboard() {
                       dataKey="size"
                       aspectRatio={4 / 3}
                       stroke="#fff"
-                      content={({ x, y, width, height, name, fill, abundance }) => {
-                        if (width < 50 || height < 30) return null;
+                      content={({ x, y, width, height, name, fill, abundance, depth }) => {
+                        // depth 0 is the root node: it has no colour of its own and would paint black
+                        if (!depth) return null;
                         return (
                           <g>
                             <rect x={x} y={y} width={width} height={height} fill={fill} stroke="#fff" strokeWidth={2} />
                             {width > 80 && height > 40 && (
                               <>
-                                <text x={x + width / 2} y={y + height / 2 - 6} textAnchor="middle" fill="#fff" fontSize={12} fontWeight="bold">{name}</text>
+                                <text x={x + width / 2} y={y + height / 2 - 6} textAnchor="middle" fill="#fff" fontSize={12} fontWeight="bold">{shorten(name, Math.floor(width / 8))}</text>
                                 <text x={x + width / 2} y={y + height / 2 + 10} textAnchor="middle" fill="#fff" fontSize={11}>{abundance?.toFixed(1)}%</text>
                               </>
                             )}
@@ -801,7 +813,7 @@ export default function PipelineResultsDashboard() {
                       }}
                     />
                   </ResponsiveContainer>
-                  <div style={{ display: 'flex', gap: 16, justifyContent: 'center', fontSize: 13, marginTop: 8 }}>
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px 16px', justifyContent: 'center', fontSize: 13, marginTop: 8 }}>
                     {[['#ef4444', 'High Risk'], ['#f59e0b', 'Medium Risk'], ['#10b981', 'Low Risk']].map(([c, l]) => (
                       <span key={l}><span style={{ display: 'inline-block', width: 12, height: 12, background: c, marginRight: 5 }} />{l}</span>
                     ))}
@@ -810,22 +822,22 @@ export default function PipelineResultsDashboard() {
 
                 {/* Top 10 horizontal bar */}
                 <div className="chart-card full-width">
-                  <h3>Top 10 Most Abundant Species</h3>
+                  <h3>Top 10 Most Abundant Genera</h3>
                   <ResponsiveContainer width="100%" height={380}>
                     <BarChart
                       data={taxSpecies.slice(0, 10).map(s => ({
-                        name: s.name.length > 38 ? s.name.slice(0, 38) + '…' : s.name,
+                        name: shorten(s.name, narrow ? 20 : 39),
                         abundance: s.abundance,
                         risk: s.risk_level,
                       }))}
                       layout="vertical"
-                      margin={{ left: 150 }}
+                      margin={{ left: narrow ? 0 : 150, bottom: narrow ? 10 : 5 }}
                     >
                       <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
-                      <XAxis type="number" tick={{ fill: '#6b7280' }} label={{ value: 'Abundance (%)', position: 'insideBottom', offset: -5 }} />
-                      <YAxis type="category" dataKey="name" tick={{ fill: '#6b7280', fontSize: 12 }} width={140} />
+                      <XAxis type="number" tick={{ fill: '#6b7280' }} label={{ value: taxonomy?.abundance_basis === 'assembled_bases' ? '% of assembled bases' : 'Abundance (%)', position: 'insideBottom', offset: -5 }} />
+                      <YAxis type="category" dataKey="name" tick={{ fill: '#6b7280', fontSize: narrow ? 10 : 12 }} width={narrow ? 112 : 140} />
                       <Tooltip formatter={(v) => `${v.toFixed(2)}%`} />
-                      <Bar dataKey="abundance" radius={[0, 8, 8, 0]}>
+                      <Bar isAnimationActive={animate} dataKey="abundance" radius={[0, 8, 8, 0]}>
                         {taxSpecies.slice(0, 10).map((s, i) => (
                           <Cell key={i} fill={s.risk_level === 'high' ? '#ef4444' : s.risk_level === 'medium' ? '#f59e0b' : '#10b981'} />
                         ))}
@@ -836,13 +848,12 @@ export default function PipelineResultsDashboard() {
 
                 {/* Detailed table */}
                 <div className="table-card full-width">
-                  <h3>Detailed Taxonomic Classification</h3>
+                  <h3>Detailed Taxonomic Classification (genus level)</h3>
                   <div className="table-wrapper">
                     <table className="data-table">
                       <thead>
                         <tr>
-                          <th>Bin</th>
-                          <th>Species</th>
+                          <th>Genus</th>
                           <th>Abundance (%)</th>
                           <th>Pathogenicity</th>
                           <th>Risk</th>
@@ -852,16 +863,15 @@ export default function PipelineResultsDashboard() {
                       <tbody>
                         {taxSpecies.map((species, idx) => (
                           <tr key={idx}>
-                            <td className="mono">{species.bin || 'N/A'}</td>
                             <td className="italic">{species.name}</td>
                             <td className="abundance">{species.abundance?.toFixed(2)}%</td>
                             <td>
-                              <span className={`badge badge-${species.pathogenicity === 'pathogen' ? 'danger' : 'success'}`}>
+                              <span className={`badge badge-${species.pathogenicity === 'pathogen' ? 'danger' : species.pathogenicity === 'opportunistic' ? 'warning' : 'success'}`}>
                                 {species.pathogenicity || 'Unknown'}
                               </span>
                             </td>
                             <td>
-                              <span className={`badge badge-${species.risk_level || 'low'}`}>
+                              <span className={`badge badge-${species.risk_level === 'high' ? 'danger' : species.risk_level === 'medium' ? 'warning' : 'low'}`}>
                                 {species.risk_level || 'low'}
                               </span>
                             </td>
@@ -883,8 +893,175 @@ export default function PipelineResultsDashboard() {
               </div>
             )}
           </div>
-        )}
+  );
+
+  const metricsGrid = (
+      <div className="metrics-grid">
+        <div className="metric-card quality">
+          <div className="metric-label">Quality Score</div>
+          <div className="metric-value">{quality_score?.toFixed(1) || 0}</div>
+          <div className="metric-bar">
+            <div className="metric-bar-fill" style={{ width: `${quality_score || 0}%` }}></div>
+          </div>
+        </div>
+
+        <div className="metric-card amr">
+          <div className="metric-label">AMR Risk (0–10)</div>
+          <div className="metric-value">{amr_risk_score?.toFixed(1) || 0}</div>
+          <div className={`risk-badge risk-${amrRiskLevel}`}>{amrRiskLabel}</div>
+        </div>
+
+        <div className="metric-card mags">
+          <div className="metric-label">Total MAGs</div>
+          <div className="metric-value">{mags?.total_bins || mags?.total || 0}</div>
+          <div className="metric-detail">
+            High: {mags?.high_quality || 0} | Med: {mags?.medium_quality || 0} | Low: {mags?.low_quality || 0}
+          </div>
+        </div>
+
+        <div className="metric-card genes">
+          <div className="metric-label">AMR Genes</div>
+          <div className="metric-value">{amr?.total_genes || 0}</div>
+          <div className="metric-detail">{amr?.high_risk_genes || 0} high-risk</div>
+        </div>
       </div>
+  );
+
+  const formatDateTime = (iso) => (iso ? new Date(iso).toLocaleString(undefined, {
+    year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit',
+  }) : '—');
+
+  const renderPdfReport = () => {
+    const run = reportMeta?.run || {};
+    const sample = reportMeta?.sample || {};
+    const location = [sample.location_city, sample.location_country].filter(Boolean).join(', ') || sample.location_name;
+    const minutes = run.started_at && run.completed_at
+      ? Math.max(0, Math.round((new Date(run.completed_at) - new Date(run.started_at)) / 60000))
+      : null;
+    const details = [
+      ['Sample', sample_name || sampleId],
+      ['Pipeline run', data?.pipeline_id ? `#${data.pipeline_id}` : '—'],
+      ['Status', status || run.status || '—'],
+      ['Sample type', sample.sample_type || '—'],
+      ['Location', location || '—'],
+      ['Collection date', sample.collection_date ? new Date(sample.collection_date).toLocaleDateString() : '—'],
+      ['Temperature', sample.temperature_celsius != null ? `${Number(sample.temperature_celsius).toFixed(1)} °C` : '—'],
+      ['Analysis started', formatDateTime(run.started_at)],
+      ['Analysis finished', formatDateTime(run.completed_at)],
+      ['Duration', minutes == null ? '—' : minutes >= 60 ? `${Math.floor(minutes / 60)}h ${minutes % 60}m` : `${minutes} min`],
+    ];
+    return (
+      <div className="pdf-report pipeline-dashboard" ref={reportRef} aria-hidden="true">
+        <div className="pdf-cover" data-pdf-block="">
+          <div className="pdf-brand">UPGRADE</div>
+          <div className="pdf-brand-sub">Urban Pathogen Genomic Surveillance Platform</div>
+          <h1>Pipeline Analysis Report</h1>
+          <p className="pdf-cover-sample">{sample_name || sampleId}</p>
+          <dl className="pdf-details">
+            {details.map(([label, value]) => (
+              <div key={label}><dt>{label}</dt><dd>{value}</dd></div>
+            ))}
+          </dl>
+        </div>
+        <div data-pdf-block="">{metricsGrid}</div>
+        {tabs.map((tab, index) => (
+          <React.Fragment key={tab.id}>
+            <h2 className="pdf-section-title" data-pdf-block="heading">{index + 1}. {tab.label}</h2>
+            <div className="tab-content pdf-section" data-pdf-section="">
+              {SECTIONS[tab.id]({ narrow: false, animate: false })}
+            </div>
+          </React.Fragment>
+        ))}
+      </div>
+    );
+  };
+
+  const SECTIONS = {
+    overview: render_overview,
+    qc: render_qc,
+    assembly: render_assembly,
+    mags: render_mags,
+    amr: render_amr,
+    taxonomy: render_taxonomy,
+  };
+
+
+  return (
+    <div className="pipeline-dashboard">
+      {/* Header */}
+      <div className="dashboard-header">
+        <div className="header-content">
+          <div className="header-title">
+            <h1>Pipeline Results</h1>
+            <p className="sample-id">{sample_name || sampleId}</p>
+          </div>
+          <div className="header-actions">
+            <button onClick={startPdfExport} className="btn btn-pdf" disabled={exporting || data?.results_available === false}>
+              {exporting ? 'Creating PDF…' : '⬇ Download PDF'}
+            </button>
+            <button onClick={() => navigate('/results')} className="btn btn-back">← Back to Results</button>
+          </div>
+        </div>
+      </div>
+
+      {data?.results_available === false ? (
+        <div className="tab-content">
+          <div className="empty-state no-results">
+            <div className="empty-icon">⚠</div>
+            <p>This run has no results</p>
+            <p style={{ fontSize: 14, color: '#64748b', marginTop: 10, maxWidth: 560 }}>
+              {data.error_message
+                || 'Nextflow did not produce any result files for this run, so there is nothing to show — the zeros it would display are not findings.'}
+            </p>
+            <button className="btn btn-primary" style={{ marginTop: 16 }}
+              onClick={() => navigate(`/pipeline/${data.pipeline_id}/monitor`)}>
+              Open pipeline monitor and log
+            </button>
+          </div>
+        </div>
+      ) : (
+      <>
+      {/* Key Metrics */}
+      {metricsGrid}
+
+      {/* Tabs */}
+      <div className="dashboard-tabs">
+        {tabs.map(tab => (
+          <button
+            key={tab.id}
+            onClick={() => setActiveTab(tab.id)}
+            className={`tab-button ${activeTab === tab.id ? 'active' : ''}`}
+          >
+            {tab.label}
+          </button>
+        ))}
+      </div>
+
+      {/* Tab Content */}
+      <div className="tab-content">
+
+        {SECTIONS[activeTab]({ narrow: isNarrow, animate: true })}
+      </div>
+      </>
+      )}
+
+      {exportError && (
+        <div className="pdf-export-error" role="alert">
+          {exportError}
+          <button onClick={() => setExportError(null)} aria-label="Dismiss">×</button>
+        </div>
+      )}
+
+      {exporting && createPortal(
+        <>
+          {renderPdfReport()}
+          <div className="pdf-export-overlay" role="status">
+            <div className="spinner"></div>
+            <p>Creating the PDF report…</p>
+          </div>
+        </>,
+        document.body
+      )}
     </div>
   );
 }

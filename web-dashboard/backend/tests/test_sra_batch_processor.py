@@ -4,6 +4,11 @@ Tests for SRA Batch Processor
 import pytest
 from unittest.mock import Mock, MagicMock, patch
 import logging
+import sys
+from pathlib import Path
+
+# The processor lives with the other batch scripts, outside the backend package
+sys.path.insert(0, str(Path(__file__).resolve().parents[3] / 'scripts' / 'data_processors'))
 
 
 class TestSRABatchProcessorImports:

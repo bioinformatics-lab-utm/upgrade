@@ -642,7 +642,11 @@ class PipelineService:
                 pr.log_file_path,
                 pr.exit_code,
                 pr.error_message,
-                pr.runtime_minutes,
+                -- runtime_minutes is never written by the worker, so derive it from the timestamps
+                COALESCE(
+                    pr.runtime_minutes,
+                    ROUND(EXTRACT(EPOCH FROM (pr.completed_at - pr.started_at)) / 60)::int
+                ) AS runtime_minutes,
                 pr.queued_at,
                 pr.started_at,
                 pr.completed_at,
@@ -652,9 +656,14 @@ class PipelineService:
                 s.sample_code,
                 s.sample_type,
                 s.collection_date,
-                s.sequencing_platform
+                s.sequencing_platform,
+                l.location_id,
+                l.location_name,
+                l.city AS location_city,
+                l.country AS location_country
             FROM pipeline_runs pr
             JOIN samples s ON pr.sample_id = s.sample_id
+            LEFT JOIN locations l ON s.location_id = l.location_id
         """
 
         where_clauses = ["s.owner_id = $1"]
@@ -688,4 +697,19 @@ class PipelineService:
         
         async with self.pipeline_repo.pool.acquire() as conn:
             rows = await conn.fetch(query, *params)
-            return [dict(row) for row in rows]
+
+        runs = []
+        for row in rows:
+            run = dict(row)
+            location_id = run.pop('location_id')
+            name = run.pop('location_name')
+            city = run.pop('location_city')
+            country = run.pop('location_country')
+            run['location'] = {
+                'location_id': location_id,
+                'name': name,
+                'city': city,
+                'country': country,
+            } if location_id is not None else None
+            runs.append(run)
+        return runs

@@ -200,19 +200,33 @@ def parse_abricate(results_dir):
                         for line in f:
                             if line.startswith('#'):
                                 continue
-                            parts = line.strip().split('\t')
-                            if len(parts) >= 10:
-                                antibiotic_info = parts[13] if len(parts) > 13 else 'Unknown'
-                                genes.append({
-                                    'gene': parts[5] if len(parts) > 5 else 'Unknown',
-                                    'bin': bin_dir.name,
-                                    'antibiotic_class': antibiotic_info,
-                                    'mechanism': antibiotic_info,
-                                    'identity': float(parts[9]) if len(parts) > 9 else 0,
-                                    'coverage': float(parts[10]) if len(parts) > 10 else 0,
-                                    'database': 'card',
-                                    'risk_level': 'high' if (len(parts) > 9 and float(parts[9]) > 95) else 'moderate'
-                                })
+                            # ABRicate columns: #FILE SEQUENCE START END STRAND GENE COVERAGE
+                            # COVERAGE_MAP GAPS %COVERAGE %IDENTITY DATABASE ACCESSION PRODUCT RESISTANCE
+                            parts = line.rstrip('\n').split('\t')
+                            if len(parts) < 15:
+                                continue
+                            identity = float(parts[10])
+                            resistance = parts[14].strip()
+                            genes.append({
+                                'gene': parts[5],
+                                'bin': bin_dir.name,
+                                'antibiotic_class': resistance.split(';')[0] if resistance else 'Unknown',
+                                'resistance': resistance,
+                                'mechanism': parts[13].strip(),
+                                'identity': identity,
+                                'coverage': float(parts[9]),
+                                'database': f"ABRicate/{parts[11]}",
+                                # Same rule as the results page (routes/results.py)
+                                'risk_level': 'high' if identity >= 90 else 'moderate'
+                            })
+
+    # A gene hit on several contigs/bins counts once (best hit), as on the results page
+    best = {}
+    for g in genes:
+        known = best.get(g['gene'])
+        if not known or (g['identity'], g['coverage']) > (known['identity'], known['coverage']):
+            best[g['gene']] = g
+    genes = sorted(best.values(), key=lambda g: (g['risk_level'] != 'high', -g['identity'], g['gene']))
 
     high_risk = sum(1 for g in genes if g['risk_level'] == 'high')
     mod_risk = len(genes) - high_risk
